@@ -1,0 +1,27 @@
+yolo_detector_node:
+  # RealSense RGB话题。
+  image_topic: "/real_sense/rgb/image_raw"
+
+  # 二维检测结果输出话题。
+  detections_topic: "/yolo/detections"
+
+  # 留空时使用本包weights/best.pt。
+  model_path: ""
+
+  # 该名称必须与权重文件中的类别表一致。
+  required_class_name: "red_sphere"
+
+  conf_threshold: 0.70
+  queue_size: 1
+
+  # 留空表示让Ultralytics自动选择设备。
+  device: ""
+
+  enable_imshow: false
+  enable_debug_log: false
+
+rgbd_data_collector:
+  # 留空时使用~/yolo_workspace/dataset。
+  dataset_dir: ""
+  rgb_topic: "/real_sense/rgb/image_raw"
+  depth_topic: "/real_sense/depth/image_raw"

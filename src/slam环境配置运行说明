@@ -1,0 +1,276 @@
+下载环境，配置libtorch，并更改libtorch与cuda的路径
+//清除旧的缓存和编译产物
+rm -rf build/ devel/
+
+//更改~/dg_ws_master/SimEnv-master/src/unitree_guide/unitree_ros/robots/a1_description/xacro/gazebo.xacro \
+第300行true改false
+
+
+//更改 src/unitree_guide/unitree_ros/unitree_legged_control/src/joint_controller.cpp
+//又改了一下joint_controller.cpp，加了什么临时测试
+
+
+//找不到unitree_guide的话，说明astlio_ws 编译时没有 overlay 在 SimEnv 上。那就需要这样重编一次：
+cd ~/fastlio_ws
+rm -rf build devel
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+
+catkin_make -DCMAKE_BUILD_TYPE=Release
+
+source ~/fastlio_ws/devel/setup.bash
+
+rospack find fast_lio
+rospack find livox_ros_driver
+rospack find unitree_guide
+
+
+
+
+//关于FAST-LIO配置参数和启动的修改
+1.新建一份config文件
+cd ~/fastlio_ws/src/FAST_LIO/config
+cp avia.yaml simenv_mid360.yaml
+
+//**************修改内容***************//
+common:
+  lid_topic: "/livox/lidar"
+  imu_topic: "/livox/imu"
+  time_sync_en: false
+
+preprocess:
+  lidar_type: 1
+  scan_line: 6
+  blind: 0.3
+
+mapping:
+  extrinsic_est_en: false
+  extrinsic_T: [0.011, 0.023, -0.044]
+  extrinsic_R: [1, 0, 0,
+                0, 1, 0,
+                0, 0, 1]
+                
+//************************************//
+
+
+2.新建一份launch文件
+cd ~/fastlio_ws/src/FAST_LIO/launch
+cp mapping_avia.launch mapping_simenv.launch
+
+然后把里面加载的 yaml 从：
+
+$(find fast_lio)/config/avia.yaml
+
+改成：
+
+$(find fast_lio)/config/simenv_mid360.yaml
+
+
+//点云转换脚本
+cd ~/fastlio_ws/src
+catkin_create_pkg simenv_fastlio_bridge rospy std_msgs sensor_msgs unitree_guide livox_ros_driver
+mkdir -p simenv_fastlio_bridge/scripts
+
+gedit ~/fastlio_ws/src/simenv_fastlio_bridge/scripts/unitree_livox_to_livox_driver.py
+
+编译时要让 fastlio_ws 看到 SimEnv 作为 underlay。
+
+按这个顺序来：
+
+cd ~/fastlio_ws
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+
+catkin_make -DCMAKE_BUILD_TYPE=Release
+
+source ~/fastlio_ws/devel/setup.bash
+
+然后确认：
+
+rospack find simenv_fastlio_bridge
+rospack find unitree_guide
+rospack find livox_ros_driver
+rospack find fast_lio
+
+这四个都能找到，环境就对了。
+
+别忘了给脚本执行权限
+chmod +x ~/fastlio_ws/src/simenv_fastlio_bridge/scripts/unitree_livox_to_livox_driver.py
+
+
+
+//检查
+SimEnv 正常运行后，新终端：
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+rosrun simenv_fastlio_bridge unitree_livox_to_livox_driver.py
+
+再开一个终端输入：
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+rostopic type /livox/lidar
+rostopic hz /livox/lidar
+rostopic echo -n 1 /livox/lidar/header
+
+目标结果：
+
+rostopic type /livox/lidar
+# livox_ros_driver/CustomMsg
+
+rostopic hz /livox/lidar
+# 约 10 Hz
+
+header.frame_id
+# laser_livox
+则点云转换脚本成功运行
+
+
+检查 1：FAST-LIO 的 lidar_type 定义
+
+执行：
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+grep -RIn "lidar_type" \
+~/fastlio_ws/src/FAST_LIO/src \
+~/fastlio_ws/src/FAST_LIO/include \
+~/fastlio_ws/src/FAST_LIO/config
+
+再执行：
+
+grep -RIn "AVIA\|VELO\|OUST\|LIVOX\|MID\|CustomMsg" \
+~/fastlio_ws/src/FAST_LIO/src \
+~/fastlio_ws/src/FAST_LIO/include \
+~/fastlio_ws/src/FAST_LIO/config
+
+你要确认类似下面的逻辑：
+
+lidar_type == AVIA / Livox → 订阅 livox_ros_driver/CustomMsg
+
+只要源码里 lidar_type: 1 对应 Livox/Avia，那我们就用 lidar_type: 1。
+
+检查 2：FAST-LIO 当前订阅的是哪个消息类型
+
+执行：
+
+grep -RIn "livox_ros_driver::CustomMsg\|livox_ros_driver/CustomMsg\|CustomMsgConstPtr" \
+~/fastlio_ws/src/FAST_LIO/src \
+~/fastlio_ws/src/FAST_LIO/include
+
+如果能看到 FAST-LIO 源码里订阅的是：
+
+livox_ros_driver::CustomMsg
+
+那就说明我们的桥接方向完全正确。
+
+
+
+////////////livox imu TF变换节点//////////////////////////
+
+创建目录：
+
+mkdir -p ~/fastlio_ws/src/simenv_fastlio_bridge/launch
+
+创建文件：
+
+gedit ~/fastlio_ws/src/simenv_fastlio_bridge/launch/map_level_tf.launch
+
+
+
+确认方向正确后，可以把这个静态 TF 包含进：
+
+~/fastlio_ws/src/FAST_LIO/launch/mapping_simenv.launch
+
+打开：
+
+gedit ~/fastlio_ws/src/FAST_LIO/launch/mapping_simenv.launch
+
+在 <launch> 和 </launch> 之间加入：
+
+<include file="$(find simenv_fastlio_bridge)/launch/map_level_tf.launch"/>
+
+然后修改 mapping_simenv.launch 中启动 RViz 的位置。例如原来是：
+
+<node pkg="rviz"
+      type="rviz"
+      name="rviz"
+      args="-d $(find fast_lio)/rviz_cfg/loam_livox.rviz"/>
+
+改成：
+
+<node pkg="rviz"
+      type="rviz"
+      name="rviz"
+      args="-d $(find fast_lio)/rviz_cfg/simenv_mid360.rviz"/>
+
+
+
+为了便于对比真实路径与仿真路径的差异，还添加了一个脚本
+
+在~/fastlio_ws/src/simenv_fastlio_bridge/scripts创建trajectory_compare.py
+给执行权限
+chmod +x \
+~/fastlio_ws/src/simenv_fastlio_bridge/scripts/trajectory_compare.py
+
+在~/fastlio_ws/src/simenv_fastlio_bridge/launch创建trajectory_compare.launch
+
+修改 CMakeLists.txt
+//（原文件这段全是注释状态）
+
+
+
+
+////////继续优化
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

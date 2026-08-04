@@ -1,0 +1,21 @@
+image_topic: "/real_sense/rgb/image_raw"
+detections_topic: "/yolo/detections"
+
+# 由 launch 文件使用包内路径覆盖
+model_path: ""
+
+required_class_name: "red_sphere"
+
+conf_threshold: 0.70
+iou_threshold: 0.45
+image_size: 640
+
+# auto：有 CUDA 时自动使用 CUDA，否则使用 CPU
+device: "auto"
+
+# 实时检测只保留最新帧，避免积压
+queue_size: 1
+buffer_size: 67108864
+
+enable_imshow: false
+enable_debug_log: false

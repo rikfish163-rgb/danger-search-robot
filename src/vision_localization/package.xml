@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vision_localization</name>
+  <version>0.1.0</version>
+
+  <description>
+    Red-sphere center localization using synchronized YOLO detections,
+    organized point clouds, constrained sphere RANSAC and timestamped TF.
+  </description>
+
+  <maintainer email="caesar@todo.todo">
+    caesar
+  </maintainer>
+
+  <license>BSD</license>
+
+  <author>Vision Team</author>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>quadruped_vision</depend>
+  <depend>danger_target_manager</depend>
+
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+
+  <depend>message_filters</depend>
+
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+
+  <depend>pcl_ros</depend>
+  <depend>pcl_conversions</depend>
+
+  <test_depend>rostest</test_depend>
+
+  <export>
+  </export>
+</package>

@@ -1,0 +1,977 @@
+# Unitree A1 多层 SLAM 系统使用说明
+
+注意：每次在电梯中重启FAST-LIO时，必须保证电梯门是开启状态，不然会导致SLAM的严重偏移。在系统环境中电梯门开启的状态下也能操纵电梯。因此建议电梯门开启后就不要关闭。
+
+## 一、系统目前实现的功能
+
+当前多层 SLAM 系统采用“每层独立 FAST-LIO、统一 world 坐标、每层独立二维地图”的结构。
+
+系统包含三类关键状态：
+
+```text
+1. 当前楼层状态
+   ~/catkin_ws/results/floor_state.json
+
+2. 本次跨层坐标锚点
+   ~/catkin_ws/results/floor_transition_anchor.json
+
+3. 每层二维地图完整内部状态
+   ~/catkin_ws/results/floors/floor_N/projection_state.bin
+```
+
+楼层编号固定为：
+
+```text
+0 = 一楼
+1 = 二楼
+2 = 三楼
+```
+
+每一层的二维地图分别保存为：
+
+```text
+~/catkin_ws/results/floors/
+├── floor_0/
+│   └── projection_state.bin
+├── floor_1/
+│   └── projection_state.bin
+└── floor_2/
+    └── projection_state.bin
+```
+
+第一次进入某一楼层时，二维投影节点创建一张空地图：
+
+```text
+Starting floor N with a new empty 2D map
+```
+
+再次返回已探索楼层时，节点自动读取该层旧地图：
+
+```text
+Loaded floor N map
+```
+
+二维地图统一发布到：
+
+```text
+/map_raw
+/map_confirmed
+```
+
+其中正常导航和探索主要使用：
+
+```text
+/map_confirmed
+```
+
+RViz 的 Fixed Frame 应设置为：
+
+```text
+world
+```
+
+---
+
+# 二、最重要的运行顺序
+
+整个系统的核心顺序可以概括为：
+
+```text
+首次启动一楼：
+
+SimEnv
+→ Livox bridge
+→ FAST-LIO
+→ fastlio_level_tf
+→ world 初始标定
+→ 二维投影
+→ 导航、视觉和探索
+```
+
+跨楼层时：
+
+```text
+机器人进入电梯
+→ 保存当前楼层二维地图
+→ prepare 保存 world 坐标锚点
+→ 停止二维投影和 FAST-LIO
+→ move 移动电梯并更新楼层文件
+→ 重启 FAST-LIO
+→ 重启 fastlio_level_tf
+→ world_map_level_reanchor
+→ 重启二维投影并加载目标楼层地图
+→ 重启导航、视觉和探索
+```
+
+---
+
+# 三、每个新终端的初始化命令
+
+所有 ROS 终端都建议先执行：
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+```
+
+不要在 Conda 的 `(base)` 环境下直接运行 ROS Python 节点，否则可能出现：
+
+```text
+ModuleNotFoundError: yaml
+```
+
+---
+
+# 四、完整环境重新启动后的初始化
+
+只有在以下情况才重新初始化楼层状态：
+
+```text
+SimEnv 已完全关闭并重新启动；
+电梯实际回到一楼；
+机器人实际位于一楼。
+```
+
+执行：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+init \
+--current-floor 0 \
+--floor-height 2.6 \
+--floor-count 3 \
+--force
+```
+
+检查：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+show
+```
+
+正确结果：
+
+```text
+current_floor = 0
+previous_floor = null
+last_transition_id = null
+```
+
+如果只是重启 FAST-LIO 或二维投影，而 SimEnv 没有重启，不要执行 `init --force`，应继续使用已有的 `floor_state.json`。
+
+---
+
+# 五、首次启动一楼
+
+## 终端 1：启动仿真环境
+
+```bash
+cd ~/catkin_ws/src/SimEnv
+
+./auto.sh
+```
+
+在 `junior_ctrl` 终端中按：
+
+```text
+2
+```
+
+等待仿真、机器人控制器和 `/clock` 正常运行。
+
+---
+
+## 终端 2：启动 Livox 点云桥接
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+python3 \
+~/catkin_ws/src/danger_search_robot/sensor_adapter/scripts/unitree_livox_bridge.py
+```
+
+---
+
+## 终端 3：启动 FAST-LIO
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch fast_lio mapping_mid360.launch
+```
+
+主要输出包括：
+
+```text
+/Odometry
+/cloud_registered
+/cloud_registered_body
+/path
+```
+
+---
+
+## 终端 4：建立水平 map_level 坐标系
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot \
+fastlio_level_tf.launch
+```
+
+该节点建立：
+
+```text
+map_level → camera_init
+```
+
+FAST-LIO 本身建立：
+
+```text
+camera_init → body
+```
+
+---
+
+## 终端 5：一楼 world 坐标初始化
+
+只有整个仿真首次启动的一楼使用该节点：
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot \
+world_map_level_calibration.launch
+```
+
+机器人在标定期间应保持静止。
+
+最终形成：
+
+```text
+world
+→ map_level
+→ camera_init
+→ body
+```
+
+检查：
+
+```bash
+timeout 8s rosrun tf tf_echo world body
+```
+
+必须持续出现：
+
+```text
+At time ...
+- Translation: [...]
+- Rotation: ...
+```
+
+当前这个一楼初始标定节点使用仿真中的 Gazebo 状态完成对齐，适用于当前仿真测试。正式比赛若禁止使用 Gazebo 真值接口，需要将首次 world 初始化替换为合规方法。
+
+---
+
+## 终端 6：启动多楼层二维投影
+
+必须确认 `world → body` 已经存在，再启动：
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch \
+~/catkin_ws/src/danger_search_robot/mapping/launch/fastlio_2d_projection.launch
+```
+
+第一次进入一楼应显示：
+
+```text
+Starting floor 0 with a new empty 2D map
+```
+
+如果此前已经保存过一楼地图，则显示：
+
+```text
+Loaded floor 0 map
+```
+
+检查二维投影当前楼层：
+
+```bash
+rostopic echo -n 1 \
+/fastlio_2d_projection/current_floor
+```
+
+一楼应输出：
+
+```text
+data: 0
+```
+
+检查服务：
+
+```bash
+rosservice list | grep fastlio_2d_projection
+```
+
+应包含：
+
+```text
+/fastlio_2d_projection/clear_map
+/fastlio_2d_projection/clear_candidates
+/fastlio_2d_projection/save_current_floor
+/fastlio_2d_projection/set_updates_enabled
+/fastlio_2d_projection/sync_floor_state
+```
+
+---
+
+# 六、可选：启动导航、视觉和探索
+
+二维地图已经正常发布后，再启动后续模块。
+
+## TEB 导航
+
+```bash
+roslaunch danger_search_robot \
+move_base_teb.launch
+```
+
+## 危险源视觉识别
+
+```bash
+roslaunch danger_search_robot \
+vision_stack.launch
+```
+
+## Graph NBV 探索
+
+先手动将机器人移动到合适的走廊起点，再执行：
+
+```bash
+roslaunch danger_search_robot \
+graph_nbv_stage_b31_manual_gate.launch \
+exploration_dry_run:=false
+```
+
+正常多层运行时，不应在坐标链和二维地图尚未完成前启动导航和探索。
+
+---
+
+# 七、离开当前楼层前的标准操作
+
+假设当前位于一楼，准备前往二楼。
+
+首先停止探索和导航目标，让机器人进入电梯并保持静止。
+
+可以发送一次零速度：
+
+```bash
+rostopic pub -1 /cmd_vel geometry_msgs/Twist \
+"linear:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+angular:
+  x: 0.0
+  y: 0.0
+  z: 0.0"
+```
+
+等待机器人和 FAST-LIO 稳定：
+
+```bash
+sleep 3
+```
+
+---
+
+## 第一步：保存当前楼层二维地图
+
+```bash
+rosservice call \
+/fastlio_2d_projection/save_current_floor "{}"
+```
+
+检查文件：
+
+```bash
+ls -lh \
+~/catkin_ws/results/floors/floor_0/projection_state.bin
+```
+
+离开二楼或三楼时，将目录中的楼层编号相应改为 `floor_1` 或 `floor_2`。
+
+虽然节点会定时自动保存，但正式跨层前仍应手动执行一次 `save_current_floor`。
+
+---
+
+## 第二步：捕获跨层坐标锚点
+
+一楼到二楼：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+prepare \
+--target-floor 1 \
+--sample-count 20 \
+--sample-rate 10 \
+--max-translation-std 0.08
+```
+
+二楼到三楼：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+prepare \
+--target-floor 2 \
+--sample-count 20 \
+--sample-rate 10 \
+--max-translation-std 0.08
+```
+
+三楼返回二楼：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+prepare \
+--target-floor 1 \
+--sample-count 20 \
+--sample-rate 10 \
+--max-translation-std 0.08
+```
+
+二楼返回一楼：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+prepare \
+--target-floor 0 \
+--sample-count 20 \
+--sample-rate 10 \
+--max-translation-std 0.08
+```
+
+检查：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+show
+```
+
+例如一楼到二楼应看到：
+
+```text
+current_floor = 0
+
+status = PREPARED
+source_floor = 0
+target_floor = 1
+delta_z = 2.6
+```
+
+二楼返回一楼应看到：
+
+```text
+source_floor = 1
+target_floor = 0
+delta_z = -2.6
+```
+
+`prepare` 必须在旧楼层的完整坐标链仍然存在时执行，因为它需要读取：
+
+```text
+world → body
+```
+
+---
+
+# 八、跨层前必须停止的节点
+
+`prepare` 成功且地图已经保存后，在对应终端依次按 `Ctrl+C` 停止：
+
+```text
+1. Graph NBV
+2. vision_stack
+3. move_base_teb
+4. fastlio_2d_projection
+5. world_map_level_calibration 或 world_map_level_reanchor
+6. fastlio_level_tf
+7. FAST-LIO
+```
+
+保持运行：
+
+```text
+SimEnv
+junior_ctrl
+Livox bridge
+```
+
+不能让 FAST-LIO 和二维投影在电梯瞬移期间继续运行，否则会把电梯移动过程或其他楼层点云写入当前楼层地图。
+
+---
+
+# 九、移动电梯
+
+执行统一的楼层管理脚本：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+move \
+--open-doors
+```
+
+该脚本会自动读取刚才的 `PREPARED` 锚点，因此不需要再次填写目标楼层。
+
+移动成功后检查：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+show
+```
+
+例如一楼到二楼应显示：
+
+```text
+previous_floor = 0
+current_floor = 1
+
+status = ELEVATOR_ARRIVED
+source_floor = 0
+target_floor = 1
+```
+
+不要在正式多层流程中直接执行：
+
+```bash
+rosservice call /call_elevator ...
+```
+
+因为直接调用电梯服务不会同步更新：
+
+```text
+floor_state.json
+floor_transition_anchor.json
+```
+
+正式运行必须通过：
+
+```bash
+elevator_floor_transition.py move
+```
+
+---
+
+# 十、到达新楼层后的重启顺序
+
+假设刚从一楼到达二楼。
+
+## 第一步：重启 FAST-LIO
+
+```bash
+roslaunch fast_lio mapping_mid360.launch
+```
+
+机器人保持静止。
+
+---
+
+## 第二步：重启水平 TF
+
+```bash
+roslaunch danger_search_robot \
+fastlio_level_tf.launch
+```
+
+---
+
+## 第三步：执行 world 重标定
+
+除了整个系统第一次启动的一楼外，所有跨层后都使用：
+
+```bash
+roslaunch danger_search_robot \
+world_map_level_reanchor.launch
+```
+
+二楼应输出：
+
+```text
+REANCHORED_FLOOR_1
+```
+
+三楼应输出：
+
+```text
+REANCHORED_FLOOR_2
+```
+
+返回一楼应输出：
+
+```text
+REANCHORED_FLOOR_0
+```
+
+检查：
+
+```bash
+rostopic echo -n 1 \
+/world_alignment/status
+```
+
+检查当前楼层：
+
+```bash
+rostopic echo -n 1 \
+/world_alignment/current_floor
+```
+
+检查完整坐标链：
+
+```bash
+timeout 8s rosrun tf tf_echo world body
+```
+
+只有 `world → body` 正常后，才能启动二维投影。
+
+---
+
+## 第四步：启动目标楼层二维地图
+
+```bash
+roslaunch \
+~/catkin_ws/src/danger_search_robot/mapping/launch/fastlio_2d_projection.launch
+```
+
+第一次进入某层时：
+
+```text
+Starting floor N with a new empty 2D map
+```
+
+返回已经探索过的楼层时：
+
+```text
+Loaded floor N map
+```
+
+检查：
+
+```bash
+rostopic echo -n 1 \
+/fastlio_2d_projection/current_floor
+```
+
+二楼应为：
+
+```text
+data: 1
+```
+
+三楼应为：
+
+```text
+data: 2
+```
+
+一楼应为：
+
+```text
+data: 0
+```
+
+此时 `/map_confirmed` 只显示当前楼层地图，不应混入其他楼层。
+
+---
+
+## 第五步：重新启动导航、视觉和探索
+
+确认地图正常恢复后，再重新启动：
+
+```bash
+roslaunch danger_search_robot \
+move_base_teb.launch
+```
+
+```bash
+roslaunch danger_search_robot \
+vision_stack.launch
+```
+
+```bash
+roslaunch danger_search_robot \
+graph_nbv_stage_b31_manual_gate.launch \
+exploration_dry_run:=false
+```
+
+每次更换楼层后，导航和探索节点也应重新启动，避免使用旧楼层的规划状态和目标点。
+
+---
+
+# 十一、返回旧楼层时的完整流程
+
+以三楼返回二楼为例。
+
+在三楼电梯内：
+
+```bash
+rosservice call \
+/fastlio_2d_projection/save_current_floor "{}"
+```
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+prepare \
+--target-floor 1 \
+--sample-count 20 \
+--sample-rate 10 \
+--max-translation-std 0.08
+```
+
+停止当前楼层的探索、导航、二维投影、reanchor、水平 TF 和 FAST-LIO。
+
+移动：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+move \
+--open-doors
+```
+
+到达二楼后依次启动：
+
+```bash
+roslaunch fast_lio mapping_mid360.launch
+```
+
+```bash
+roslaunch danger_search_robot \
+fastlio_level_tf.launch
+```
+
+```bash
+roslaunch danger_search_robot \
+world_map_level_reanchor.launch
+```
+
+最后启动二维投影：
+
+```bash
+roslaunch \
+~/catkin_ws/src/danger_search_robot/mapping/launch/fastlio_2d_projection.launch
+```
+
+正确日志：
+
+```text
+Loaded floor 1 map
+```
+
+说明二楼旧地图已恢复，可以继续更新。
+
+---
+
+# 十二、常用检查命令
+
+## 查看楼层状态和锚点
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+show
+```
+
+## 查看二维投影当前楼层
+
+```bash
+rostopic echo -n 1 \
+/fastlio_2d_projection/current_floor
+```
+
+## 查看 world 重标定状态
+
+```bash
+rostopic echo -n 1 \
+/world_alignment/status
+```
+
+## 查看世界坐标链
+
+```bash
+timeout 8s rosrun tf tf_echo world body
+```
+
+## 查看所有楼层地图文件
+
+```bash
+find ~/catkin_ws/results/floors \
+-type f \
+-name projection_state.bin \
+-ls
+```
+
+## 强制保存当前楼层地图
+
+```bash
+rosservice call \
+/fastlio_2d_projection/save_current_floor "{}"
+```
+
+## 暂停地图更新
+
+```bash
+rosservice call \
+/fastlio_2d_projection/set_updates_enabled \
+"{data: false}"
+```
+
+## 恢复地图更新
+
+```bash
+rosservice call \
+/fastlio_2d_projection/set_updates_enabled \
+"{data: true}"
+```
+
+## 手动要求投影节点重新读取楼层状态
+
+主要用于调试：
+
+```bash
+rosservice call \
+/fastlio_2d_projection/sync_floor_state "{}"
+```
+
+正常跨层流程仍建议关闭并重启二维投影，不依赖在线切换。
+
+---
+
+# 十三、开始新任务时如何清空全部地图
+
+如果要开始一次全新的比赛任务，并且不需要旧地图：
+
+```bash
+rm -rf ~/catkin_ws/results/floors
+
+mkdir -p ~/catkin_ws/results/floors
+
+rm -f \
+~/catkin_ws/results/floor_transition_anchor.json
+```
+
+然后在 SimEnv 实际位于一楼时重新初始化：
+
+```bash
+rosrun danger_search_robot \
+elevator_floor_transition.py \
+init \
+--current-floor 0 \
+--floor-height 2.6 \
+--floor-count 3 \
+--force
+```
+
+不要在正常任务中误删：
+
+```text
+~/catkin_ws/results/floors
+```
+
+否则所有已经探索楼层的内部地图都会丢失。
+
+---
+
+# 十四、禁止操作
+
+正常多层运行中，禁止以下操作：
+
+```text
+1. 不经过 prepare 就停止旧楼层坐标链。
+
+2. 电梯移动时继续运行 FAST-LIO 或二维投影。
+
+3. 直接调用 /call_elevator 代替楼层管理脚本。
+
+4. 在 world → body 尚未建立时启动二维投影。
+
+5. 跨层后继续使用 world_map_level_calibration。
+   跨层后必须使用 world_map_level_reanchor。
+
+6. 在每次换层前忘记执行 save_current_floor。
+
+7. 在任务进行中执行 clear_map 或删除 results/floors。
+
+8. RViz 使用 map_level 作为 Fixed Frame。
+   多楼层模式应使用 world。
+
+9. SimEnv 未重启时随意执行 init --force。
+
+10. 让不同楼层共用一个持续运行、未切换状态的二维地图。
+```
+
+---
+
+# 十五、最简命令速查
+
+## 首次启动
+
+```text
+./auto.sh
+→ junior_ctrl 按 2
+→ unitree_livox_bridge.py
+→ FAST-LIO
+→ fastlio_level_tf
+→ world_map_level_calibration
+→ fastlio_2d_projection
+→ TEB / vision / Graph NBV
+```
+
+## 离开楼层
+
+```text
+进入电梯并停稳
+→ save_current_floor
+→ prepare --target-floor N
+→ 停止探索、导航、二维投影、world 对齐、FAST-LIO
+→ move --open-doors
+```
+
+## 到达目标楼层
+
+```text
+FAST-LIO
+→ fastlio_level_tf
+→ world_map_level_reanchor
+→ 检查 world → body
+→ fastlio_2d_projection
+→ 检查 Starting floor N 或 Loaded floor N
+→ TEB / vision / Graph NBV
+```
+
+这套顺序就是当前已验证成功的多层 SLAM 标准运行流程。

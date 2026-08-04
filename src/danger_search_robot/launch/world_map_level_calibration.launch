@@ -1,0 +1,25 @@
+<launch>
+    <node pkg="danger_search_robot"
+          type="world_map_level_calibrator.py"
+          name="world_map_level_calibrator"
+          output="screen">
+
+        <param name="robot_model"
+               value="a1_gazebo"/>
+
+        <param name="sample_count"
+               value="100"/>
+
+        <param name="sample_rate"
+               value="10.0"/>
+
+        <param name="max_translation_std"
+               value="0.02"/>
+
+        <param name="parent_frame"
+               value="world"/>
+
+        <param name="child_frame"
+               value="map_level"/>
+    </node>
+</launch>

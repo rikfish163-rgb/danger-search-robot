@@ -1,0 +1,8 @@
+# 使用多边形机器人外形，替代原来的圆形 robot_radius
+footprint: [[0.30, 0.20], [0.30, -0.20], [-0.30, -0.20], [-0.30, 0.20]]
+footprint_padding: 0.01
+transform_tolerance: 0.5
+obstacle_range: 3.0
+raytrace_range: 4.0
+inflation_radius: 1.0
+cost_scaling_factor: 12.0

@@ -1,0 +1,22 @@
+# ROS build files
+build/
+devel/
+logs/
+
+# ROS logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# temporary files
+*.swp
+*.tmp
+
+# system files
+.DS_Store

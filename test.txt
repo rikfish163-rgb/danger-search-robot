@@ -1,0 +1,40 @@
+Terminal 1 — SimEnv
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+cd ~/catkin_ws/src/SimEnv
+./auto.sh
+
+
+Terminal 2 — Livox bridge
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+python3 ~/catkin_ws/src/danger_search_robot/sensor_adapter/scripts/unitree_livox_bridge.py
+
+
+Terminal 3 — FAST-LIO
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+roslaunch fast_lio mapping_mid360.launch
+
+
+Terminal 4 — map_level
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+roslaunch danger_search_robot fastlio_level_tf.launch
+
+
+Terminal 5 — 二维地图
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+roslaunch ~/catkin_ws/src/danger_search_robot/mapping/launch/fastlio_2d_projection.launch
+
+Terminal 6：导航
+
+conda deactivate 2>/dev/null || true
+source ~/catkin_ws/devel/setup.bash
+roslaunch danger_search_robot move_base.launch

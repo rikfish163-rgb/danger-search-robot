@@ -1,0 +1,18 @@
+<launch>
+  <arg name="exploration_dry_run" default="true"/>
+  <arg name="use_robot_heading" default="true"/>
+
+  <node pkg="danger_search_robot"
+        type="graph_nbv_stage_b31_manual_gate_node.py"
+        name="graph_nbv"
+        output="screen"
+        respawn="false">
+
+    <rosparam command="load"
+              file="$(find danger_search_robot)/exploration/graph_nbv/config/graph_nbv_stage_b31_manual_gate.yaml"/>
+
+    <param name="dry_run" value="$(arg exploration_dry_run)"/>
+    <param name="manual_gate_use_robot_heading"
+           value="$(arg use_robot_heading)"/>
+  </node>
+</launch>

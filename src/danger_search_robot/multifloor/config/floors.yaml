@@ -1,0 +1,24 @@
+floor_count: 3
+initial_floor: 0
+
+# 固定层高，使用 Gazebo 真值进行一次性离线标定
+floor_height: 2.6
+
+floor_world_z_offset:
+  0: 0.0
+  1: 2.6
+  2: 5.2
+
+world_frame: world
+level_frame: map_level
+robot_frame: body
+
+elevator:
+  id: elevator_main
+
+  floor_doors:
+    0: elevator_floor_0
+    1: elevator_floor_1
+    2: elevator_floor_2
+
+results_root: /root/catkin_ws/results/floors

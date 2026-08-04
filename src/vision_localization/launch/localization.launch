@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<launch>
+  <arg
+    name="config_file"
+    default="$(find vision_localization)/config/localization.yaml"
+  />
+
+  <arg
+    name="detection_topic"
+    default="/yolo/detections"
+  />
+
+  <arg
+    name="pointcloud_topic"
+    default="/real_sense/depth/points"
+  />
+
+  <arg
+    name="target_frame"
+    default="world"
+  />
+
+  <arg
+    name="tf_source_frame_override"
+    default=""
+  />
+
+  <arg
+    name="danger_observation_topic"
+    default="/danger_observation"
+  />
+
+  <arg
+    name="use_sim_time"
+    default="true"
+  />
+
+  <arg
+    name="publish_debug"
+    default="false"
+  />
+
+  <param
+    name="/use_sim_time"
+    value="$(arg use_sim_time)"
+  />
+
+  <node
+    pkg="vision_localization"
+    type="danger_localization_node"
+    name="danger_localization_node"
+    output="screen"
+    required="true"
+  >
+    <rosparam
+      command="load"
+      file="$(arg config_file)"
+    />
+
+    <param
+      name="detection_topic"
+      value="$(arg detection_topic)"
+    />
+
+    <param
+      name="pointcloud_topic"
+      value="$(arg pointcloud_topic)"
+    />
+
+    <param
+      name="target_frame"
+      value="$(arg target_frame)"
+    />
+
+    <param
+      name="tf_source_frame_override"
+      value="$(arg tf_source_frame_override)"
+    />
+
+    <param
+      name="danger_observation_topic"
+      value="$(arg danger_observation_topic)"
+    />
+
+    <param
+      name="publish_debug"
+      value="$(arg publish_debug)"
+    />
+  </node>
+</launch>

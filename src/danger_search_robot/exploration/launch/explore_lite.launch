@@ -1,0 +1,40 @@
+<launch>
+
+  <node pkg="explore_lite"
+        type="explore"
+        name="explore"
+        output="screen"
+        respawn="false">
+
+    <!-- 我们的机器人基座坐标系 -->
+    <param name="robot_base_frame" value="body"/>
+
+    <!-- 使用 move_base 已经生成好的全局代价地图 -->
+    <param name="costmap_topic"
+           value="/move_base/global_costmap/costmap"/>
+
+    <param name="costmap_updates_topic"
+           value="/move_base/global_costmap/costmap_updates"/>
+
+    <!-- 在 RViz 中发布 Frontier 可视化 -->
+    <param name="visualize" value="true"/>
+
+    <!-- 每约 2 秒重新寻找一次 Frontier -->
+    <param name="planner_frequency" value="0.5"/>
+
+    <!-- 30 秒没有取得探索进展则重新选目标 -->
+    <param name="progress_timeout" value="30.0"/>
+
+    <!-- Frontier 评分参数，第一版先使用接近默认值 -->
+    <param name="potential_scale" value="3.0"/>
+    <param name="orientation_scale" value="0.0"/>
+    <param name="gain_scale" value="1.0"/>
+
+    <param name="transform_tolerance" value="0.5"/>
+
+    <!-- 忽略很小的噪声 Frontier -->
+    <param name="min_frontier_size" value="0.5"/>
+
+  </node>
+
+</launch>

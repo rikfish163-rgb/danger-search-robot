@@ -1,0 +1,115 @@
+<?xml version="1.0"?>
+<launch>
+  <arg
+    name="image_topic"
+    default="/real_sense/rgb/image_raw"
+  />
+
+  <arg
+    name="detections_topic"
+    default="/yolo/detections"
+  />
+
+  <arg
+    name="model_path"
+    default="$(find quadruped_vision)/weights/best.pt"
+  />
+
+  <arg
+    name="required_class_name"
+    default="red_sphere"
+  />
+
+  <arg
+    name="device"
+    default="auto"
+  />
+
+  <arg
+    name="conf_threshold"
+    default="0.70"
+  />
+
+  <arg
+    name="iou_threshold"
+    default="0.45"
+  />
+
+  <arg
+    name="image_size"
+    default="640"
+  />
+
+  <arg
+    name="enable_imshow"
+    default="false"
+  />
+
+  <arg
+    name="enable_debug_log"
+    default="false"
+  />
+
+  <node
+    pkg="quadruped_vision"
+    type="yolo_detector_venv"
+    name="yolo_detector_node"
+    output="screen"
+    required="true"
+  >
+    <rosparam
+      command="load"
+      file="$(find quadruped_vision)/config/yolo_detector.yaml"
+    />
+
+    <param
+      name="image_topic"
+      value="$(arg image_topic)"
+    />
+
+    <param
+      name="detections_topic"
+      value="$(arg detections_topic)"
+    />
+
+    <param
+      name="model_path"
+      value="$(arg model_path)"
+    />
+
+    <param
+      name="required_class_name"
+      value="$(arg required_class_name)"
+    />
+
+    <param
+      name="device"
+      value="$(arg device)"
+    />
+
+    <param
+      name="conf_threshold"
+      value="$(arg conf_threshold)"
+    />
+
+    <param
+      name="iou_threshold"
+      value="$(arg iou_threshold)"
+    />
+
+    <param
+      name="image_size"
+      value="$(arg image_size)"
+    />
+
+    <param
+      name="enable_imshow"
+      value="$(arg enable_imshow)"
+    />
+
+    <param
+      name="enable_debug_log"
+      value="$(arg enable_debug_log)"
+    />
+  </node>
+</launch>

@@ -1,0 +1,681 @@
+#!/usr/bin/env python3
+
+import math
+import threading
+
+import rospy
+import tf2_ros
+
+from actionlib_msgs.msg import GoalID
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import OccupancyGrid, Path
+from std_msgs.msg import String
+from tf.transformations import euler_from_quaternion
+
+
+class PathCollisionForwardRecovery:
+    def __init__(self):
+        self.local_costmap_topic = rospy.get_param(
+            "~local_costmap_topic",
+            "/move_base/local_costmap/costmap",
+        )
+        self.local_plan_topic = rospy.get_param(
+            "~local_plan_topic",
+            "/move_base/TebLocalPlannerROS/local_plan",
+        )
+        self.cmd_vel_topic = rospy.get_param(
+            "~cmd_vel_topic",
+            "/cmd_vel",
+        )
+        self.cancel_topic = rospy.get_param(
+            "~cancel_topic",
+            "/move_base/cancel",
+        )
+
+        self.body_frame = rospy.get_param("~body_frame", "body")
+
+        # 路径连续碰撞多长时间后触发恢复
+        self.collision_hold_time = float(
+            rospy.get_param("~collision_hold_time", 5.0)
+        )
+
+        # 恢复直行参数
+        self.forward_duration = float(
+            rospy.get_param("~forward_duration", 1.0)
+        )
+        self.forward_speed = float(
+            rospy.get_param("~forward_speed", 0.10)
+        )
+
+        # 只检查局部路径前方一定距离，避免远端短暂异常触发
+        self.check_path_distance = float(
+            rospy.get_param("~check_path_distance", 1.50)
+        )
+
+        # move_base OccupancyGrid 中 100 才是致命障碍
+        self.collision_cost_threshold = int(
+            rospy.get_param("~collision_cost_threshold", 100)
+        )
+
+        self.cooldown_time = float(
+            rospy.get_param("~cooldown_time", 2.0)
+        )
+
+        self.forward_safety_margin = float(
+            rospy.get_param("~forward_safety_margin", 0.05)
+        )
+
+        self.footprint_param = rospy.get_param(
+            "~footprint_param",
+            "/move_base/local_costmap/footprint",
+        )
+        self.robot_radius_param = rospy.get_param(
+            "~robot_radius_param",
+            "/move_base/local_costmap/robot_radius",
+        )
+
+        self.lock = threading.RLock()
+
+        self.latest_costmap = None
+        self.latest_plan = None
+        self.local_footprint = None
+
+        self.collision_since = None
+        self.cooldown_until = rospy.Time(0)
+        self.recovery_active = False
+        self.last_collision_pose = -1
+
+        self.tf_buffer = tf2_ros.Buffer(rospy.Duration(20.0))
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+        self.cmd_vel_pub = rospy.Publisher(
+            self.cmd_vel_topic,
+            Twist,
+            queue_size=5,
+        )
+        self.cancel_pub = rospy.Publisher(
+            self.cancel_topic,
+            GoalID,
+            queue_size=5,
+        )
+        self.status_pub = rospy.Publisher(
+            "~status",
+            String,
+            queue_size=5,
+            latch=True,
+        )
+
+        rospy.Subscriber(
+            self.local_costmap_topic,
+            OccupancyGrid,
+            self.costmap_callback,
+            queue_size=1,
+        )
+        rospy.Subscriber(
+            self.local_plan_topic,
+            Path,
+            self.plan_callback,
+            queue_size=1,
+        )
+
+        self.timer = rospy.Timer(
+            rospy.Duration(0.10),
+            self.timer_callback,
+        )
+
+        self.publish_status("WAITING_FOR_DATA")
+
+        rospy.loginfo(
+            "Path collision recovery started | hold=%.2fs | "
+            "forward=%.2fs @ %.2fm/s | check_distance=%.2fm | "
+            "threshold=%d",
+            self.collision_hold_time,
+            self.forward_duration,
+            self.forward_speed,
+            self.check_path_distance,
+            self.collision_cost_threshold,
+        )
+
+    def publish_status(self, text):
+        message = String()
+        message.data = text
+        self.status_pub.publish(message)
+
+    def costmap_callback(self, message):
+        with self.lock:
+            self.latest_costmap = message
+
+    def plan_callback(self, message):
+        with self.lock:
+            self.latest_plan = message
+
+    def load_footprint(self):
+        try:
+            footprint = rospy.get_param(self.footprint_param, [])
+        except KeyError:
+            footprint = []
+
+        points = []
+
+        if isinstance(footprint, list) and len(footprint) >= 3:
+            try:
+                for point in footprint:
+                    if not isinstance(point, (list, tuple)) or len(point) < 2:
+                        raise ValueError("invalid footprint point")
+                    points.append((float(point[0]), float(point[1])))
+            except (TypeError, ValueError):
+                points = []
+
+        if len(points) >= 3:
+            self.local_footprint = points
+            return True
+
+        # 没有多边形时，用 robot_radius 生成圆形近似
+        try:
+            radius = float(rospy.get_param(self.robot_radius_param, 0.20))
+        except (TypeError, ValueError):
+            radius = 0.20
+
+        if radius <= 0.0:
+            return False
+
+        self.local_footprint = [
+            (
+                radius * math.cos(2.0 * math.pi * index / 16.0),
+                radius * math.sin(2.0 * math.pi * index / 16.0),
+            )
+            for index in range(16)
+        ]
+        return True
+
+    @staticmethod
+    def point_in_polygon(x, y, polygon):
+        inside = False
+        count = len(polygon)
+
+        for index in range(count):
+            x1, y1 = polygon[index]
+            x2, y2 = polygon[(index + 1) % count]
+
+            if (y1 > y) != (y2 > y):
+                denominator = y2 - y1
+                if abs(denominator) < 1e-12:
+                    continue
+
+                crossing_x = x1 + (y - y1) * (x2 - x1) / denominator
+
+                if x < crossing_x:
+                    inside = not inside
+
+        return inside
+
+    @staticmethod
+    def point_segment_distance(px, py, x1, y1, x2, y2):
+        dx = x2 - x1
+        dy = y2 - y1
+        length_squared = dx * dx + dy * dy
+
+        if length_squared <= 1e-12:
+            return math.hypot(px - x1, py - y1)
+
+        parameter = (
+            (px - x1) * dx + (py - y1) * dy
+        ) / length_squared
+
+        parameter = max(0.0, min(1.0, parameter))
+
+        closest_x = x1 + parameter * dx
+        closest_y = y1 + parameter * dy
+
+        return math.hypot(px - closest_x, py - closest_y)
+
+    def transform_footprint(self, x, y, yaw):
+        cosine = math.cos(yaw)
+        sine = math.sin(yaw)
+
+        return [
+            (
+                x + cosine * local_x - sine * local_y,
+                y + sine * local_x + cosine * local_y,
+            )
+            for local_x, local_y in self.local_footprint
+        ]
+
+    def polygon_hits_collision(self, grid, polygon):
+        resolution = float(grid.info.resolution)
+        origin_x = float(grid.info.origin.position.x)
+        origin_y = float(grid.info.origin.position.y)
+
+        minimum_x = min(point[0] for point in polygon)
+        maximum_x = max(point[0] for point in polygon)
+        minimum_y = min(point[1] for point in polygon)
+        maximum_y = max(point[1] for point in polygon)
+
+        grid_x_min = max(
+            0,
+            int(math.floor((minimum_x - origin_x) / resolution)) - 1,
+        )
+        grid_x_max = min(
+            int(grid.info.width) - 1,
+            int(math.floor((maximum_x - origin_x) / resolution)) + 1,
+        )
+        grid_y_min = max(
+            0,
+            int(math.floor((minimum_y - origin_y) / resolution)) - 1,
+        )
+        grid_y_max = min(
+            int(grid.info.height) - 1,
+            int(math.floor((maximum_y - origin_y) / resolution)) + 1,
+        )
+
+        # 用栅格半对角线做保守相交判断
+        cell_radius = resolution * math.sqrt(2.0) * 0.5
+
+        for grid_y in range(grid_y_min, grid_y_max + 1):
+            center_y = origin_y + (grid_y + 0.5) * resolution
+
+            for grid_x in range(grid_x_min, grid_x_max + 1):
+                value = grid.data[
+                    grid_y * int(grid.info.width) + grid_x
+                ]
+
+                if value < self.collision_cost_threshold:
+                    continue
+
+                center_x = origin_x + (grid_x + 0.5) * resolution
+
+                if self.point_in_polygon(center_x, center_y, polygon):
+                    return True
+
+                for index in range(len(polygon)):
+                    x1, y1 = polygon[index]
+                    x2, y2 = polygon[(index + 1) % len(polygon)]
+
+                    distance = self.point_segment_distance(
+                        center_x,
+                        center_y,
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                    )
+
+                    if distance <= cell_radius:
+                        return True
+
+        return False
+
+    @staticmethod
+    def pose_yaw(poses, index):
+        pose = poses[index].pose
+        quaternion = pose.orientation
+
+        norm = (
+            quaternion.x * quaternion.x
+            + quaternion.y * quaternion.y
+            + quaternion.z * quaternion.z
+            + quaternion.w * quaternion.w
+        )
+
+        if norm > 0.25:
+            return euler_from_quaternion(
+                [
+                    quaternion.x,
+                    quaternion.y,
+                    quaternion.z,
+                    quaternion.w,
+                ]
+            )[2]
+
+        # 路径姿态四元数无效时，根据相邻点推算方向
+        if index + 1 < len(poses):
+            next_pose = poses[index + 1].pose
+            return math.atan2(
+                next_pose.position.y - pose.position.y,
+                next_pose.position.x - pose.position.x,
+            )
+
+        if index > 0:
+            previous_pose = poses[index - 1].pose
+            return math.atan2(
+                pose.position.y - previous_pose.position.y,
+                pose.position.x - previous_pose.position.x,
+            )
+
+        return 0.0
+
+    def path_has_collision(self, grid, path):
+        if not path.poses:
+            return False, -1
+
+        grid_frame = grid.header.frame_id
+        path_frame = path.header.frame_id
+
+        if not path_frame and path.poses:
+            path_frame = path.poses[0].header.frame_id
+
+        if grid_frame != path_frame:
+            rospy.logwarn_throttle(
+                2.0,
+                "Frame mismatch: local costmap=%s, local plan=%s",
+                grid_frame,
+                path_frame,
+            )
+            return False, -1
+
+        travelled_distance = 0.0
+        previous_x = None
+        previous_y = None
+
+        for index, pose_stamped in enumerate(path.poses):
+            pose = pose_stamped.pose
+            x = pose.position.x
+            y = pose.position.y
+
+            if previous_x is not None:
+                travelled_distance += math.hypot(
+                    x - previous_x,
+                    y - previous_y,
+                )
+
+            previous_x = x
+            previous_y = y
+
+            if travelled_distance > self.check_path_distance:
+                break
+
+            yaw = self.pose_yaw(path.poses, index)
+            polygon = self.transform_footprint(x, y, yaw)
+
+            if self.polygon_hits_collision(grid, polygon):
+                return True, index
+
+        return False, -1
+
+    def lookup_body_pose(self, frame):
+        transform = self.tf_buffer.lookup_transform(
+            frame,
+            self.body_frame,
+            rospy.Time(0),
+            rospy.Duration(0.30),
+        )
+
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+
+        yaw = euler_from_quaternion(
+            [
+                rotation.x,
+                rotation.y,
+                rotation.z,
+                rotation.w,
+            ]
+        )[2]
+
+        return translation.x, translation.y, yaw
+
+    def forward_motion_is_safe(self, grid):
+        try:
+            body_x, body_y, body_yaw = self.lookup_body_pose(
+                grid.header.frame_id
+            )
+        except Exception as error:
+            rospy.logwarn(
+                "Cannot check forward recovery clearance: %s",
+                str(error),
+            )
+            return False
+
+        forward_distance = (
+            abs(self.forward_speed) * self.forward_duration
+            + self.forward_safety_margin
+        )
+
+        sample_count = max(
+            2,
+            int(math.ceil(forward_distance / 0.02)),
+        )
+
+        direction = 1.0 if self.forward_speed >= 0.0 else -1.0
+
+        for sample in range(sample_count + 1):
+            distance = (
+                forward_distance * sample / sample_count
+            ) * direction
+
+            x = body_x + distance * math.cos(body_yaw)
+            y = body_y + distance * math.sin(body_yaw)
+
+            polygon = self.transform_footprint(x, y, body_yaw)
+
+            if self.polygon_hits_collision(grid, polygon):
+                return False
+
+        return True
+
+    def publish_cancel(self):
+        message = GoalID()
+        message.stamp = rospy.Time(0)
+        message.id = ""
+        self.cancel_pub.publish(message)
+
+    def publish_zero_velocity(self):
+        self.cmd_vel_pub.publish(Twist())
+
+    def timer_callback(self, _event):
+        now = rospy.Time.now()
+
+        if now.to_sec() <= 0.0:
+            self.publish_status("WAITING_FOR_CLOCK")
+            return
+
+        with self.lock:
+            if self.recovery_active:
+                return
+
+            if (
+                self.cooldown_until.to_sec() > 0.0
+                and now < self.cooldown_until
+            ):
+                return
+
+            grid = self.latest_costmap
+            path = self.latest_plan
+
+        if grid is None or path is None:
+            self.publish_status("WAITING_FOR_DATA")
+            return
+
+        if self.local_footprint is None:
+            if not self.load_footprint():
+                self.publish_status("WAITING_FOR_FOOTPRINT")
+                return
+
+            rospy.loginfo(
+                "Loaded footprint with %d vertices: %s",
+                len(self.local_footprint),
+                str(self.local_footprint),
+            )
+
+        collision, collision_pose = self.path_has_collision(
+            grid,
+            path,
+        )
+
+        with self.lock:
+            if not collision:
+                if self.collision_since is not None:
+                    rospy.loginfo(
+                        "Path collision disappeared before timeout"
+                    )
+
+                self.collision_since = None
+                self.last_collision_pose = -1
+                self.publish_status("PATH_CLEAR")
+                return
+
+            self.last_collision_pose = collision_pose
+
+            if self.collision_since is None:
+                self.collision_since = now
+
+                rospy.logwarn(
+                    "Path collision detected at local plan pose %d; "
+                    "starting %.2fs simulation-time timer",
+                    collision_pose,
+                    self.collision_hold_time,
+                )
+
+            elapsed = (now - self.collision_since).to_sec()
+
+            self.publish_status(
+                "COLLISION_HOLDING {:.2f}/{:.2f}s pose={}".format(
+                    elapsed,
+                    self.collision_hold_time,
+                    collision_pose,
+                )
+            )
+
+            if elapsed < self.collision_hold_time:
+                return
+
+            self.recovery_active = True
+
+        thread = threading.Thread(
+            target=self.run_recovery,
+            args=(grid,),
+            daemon=True,
+        )
+        thread.start()
+
+    def run_recovery(self, grid):
+        try:
+            self.publish_status("RECOVERY_TRIGGERED")
+
+            rospy.logwarn(
+                "Path collision persisted for %.2fs simulation time; "
+                "starting recovery",
+                self.collision_hold_time,
+            )
+
+            # 先取消当前 move_base 目标，并短暂等待其停止发布速度
+            cancel_start = rospy.Time.now()
+            rate = rospy.Rate(20)
+
+            while (
+                not rospy.is_shutdown()
+                and (rospy.Time.now() - cancel_start).to_sec() < 0.30
+            ):
+                self.publish_cancel()
+                self.publish_zero_velocity()
+                rate.sleep()
+
+            with self.lock:
+                current_grid = self.latest_costmap or grid
+
+            if not self.forward_motion_is_safe(current_grid):
+                rospy.logerr(
+                    "Forward recovery refused: lethal obstacle exists "
+                    "inside the projected forward swept footprint"
+                )
+
+                self.publish_zero_velocity()
+                self.publish_status("RECOVERY_FORWARD_BLOCKED")
+                return
+
+            rospy.logwarn(
+                "Recovery command: linear.x=%.3f m/s for %.2f s "
+                "of ROS simulation time",
+                self.forward_speed,
+                self.forward_duration,
+            )
+
+            self.publish_status("RECOVERY_FORWARD")
+
+            start_time = rospy.Time.now()
+            command = Twist()
+            command.linear.x = self.forward_speed
+
+            cycle = 0
+
+            while (
+                not rospy.is_shutdown()
+                and (rospy.Time.now() - start_time).to_sec()
+                < self.forward_duration
+            ):
+                # 防止 Graph-NBV 在恢复期间立即发送新目标
+                if cycle % 2 == 0:
+                    self.publish_cancel()
+
+                with self.lock:
+                    latest_grid = self.latest_costmap
+
+                if latest_grid is not None:
+                    try:
+                        body_x, body_y, body_yaw = self.lookup_body_pose(
+                            latest_grid.header.frame_id
+                        )
+                        current_polygon = self.transform_footprint(
+                            body_x,
+                            body_y,
+                            body_yaw,
+                        )
+
+                        if self.polygon_hits_collision(
+                            latest_grid,
+                            current_polygon,
+                        ):
+                            rospy.logerr(
+                                "Recovery stopped early: current footprint "
+                                "reached a lethal obstacle"
+                            )
+                            break
+                    except Exception as error:
+                        rospy.logwarn_throttle(
+                            1.0,
+                            "Recovery TF check failed: %s",
+                            str(error),
+                        )
+
+                self.cmd_vel_pub.publish(command)
+                cycle += 1
+                rate.sleep()
+
+            # 连续发送几次零速度，确保恢复动作结束
+            for _ in range(5):
+                self.publish_zero_velocity()
+                rate.sleep()
+
+            rospy.loginfo(
+                "Forward recovery completed; collision detection restarted"
+            )
+            self.publish_status("RECOVERY_COMPLETE")
+
+        except rospy.ROSInterruptException:
+            pass
+        except Exception as error:
+            rospy.logerr(
+                "Path collision recovery failed: %s",
+                str(error),
+            )
+            self.publish_status("RECOVERY_FAILED")
+        finally:
+            now = rospy.Time.now()
+
+            with self.lock:
+                self.collision_since = None
+                self.last_collision_pose = -1
+                self.cooldown_until = now + rospy.Duration(
+                    self.cooldown_time
+                )
+                self.recovery_active = False
+
+
+def main():
+    rospy.init_node("path_collision_forward_recovery")
+    PathCollisionForwardRecovery()
+    rospy.spin()
+
+
+if __name__ == "__main__":
+    main()

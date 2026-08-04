@@ -1,0 +1,102 @@
+# Fully automatic corridor-first, room-second exploration
+
+map_topic: /map_confirmed
+global_frame: map_level
+base_frame: body
+move_base_action: /move_base
+
+# Always test with dry_run=true first.
+dry_run: true
+
+occupied_threshold: 50
+min_goal_clearance: 0.38
+
+# ============================================================
+# Automatic corridor-axis estimation
+# ============================================================
+
+# Coarse and refined angular search.
+axis_angle_step_deg: 3.0
+axis_refine_step_deg: 0.75
+axis_refine_window_deg: 4.0
+
+# The axis may be shifted sideways from the robot to the corridor center.
+axis_max_center_offset: 1.50
+axis_center_offset_step: 0.15
+
+# Evaluate the occupancy grid along each candidate axis.
+axis_sample_length: 9.0
+axis_sample_step: 0.25
+axis_center_band_half_width: 0.35
+axis_center_band_step: 0.20
+
+# Search for parallel walls on both sides.
+axis_wall_search_min: 0.65
+axis_wall_search_max: 2.40
+axis_wall_search_step: 0.10
+axis_wall_probe_start: 0.60
+axis_wall_probe_end: 5.50
+axis_wall_probe_step: 0.40
+
+# Confidence and temporal stability.
+axis_min_score: 6.0
+axis_min_wall_ratio: 0.20
+axis_stability_required: 5
+axis_stability_angle_deg: 3.0
+axis_stability_center: 0.30
+axis_reestimate_period: 1.0
+
+# Axis scoring.
+axis_weight_clear: 4.0
+axis_weight_unknown: 5.0
+axis_weight_wall: 5.0
+axis_weight_continuity: 3.0
+axis_weight_balance: 2.5
+axis_weight_blocked: 7.0
+axis_direction_unknown_weight: 7.0
+axis_direction_clear_weight: 2.0
+
+# ============================================================
+# Corridor advance
+# ============================================================
+
+frontier_min_cells: 4
+frontier_goal_radius: 1.20
+
+# Hard no-backtracking rule.
+forward_margin: 0.15
+backtrack_tolerance: 0.25
+
+# Corridor band around the automatically estimated centerline.
+corridor_half_width: 1.35
+corridor_center_weight: 3.5
+
+# Do not enter room sweep until forward corridor goals disappear
+# for multiple consecutive cycles.
+corridor_empty_cycles_to_finish: 8
+minimum_corridor_progress: 3.0
+
+# ============================================================
+# Physical room sweep
+# ============================================================
+
+coverage_radius: 0.85
+room_lateral_min: 1.20
+room_bin_length: 3.00
+room_progress_min: 0.60
+room_min_area: 0.80
+room_empty_cycles_to_finish: 5
+
+# ============================================================
+# Navigation
+# ============================================================
+
+min_goal_distance: 0.55
+max_goal_distance: 10.0
+goal_timeout: 75.0
+progress_timeout: 25.0
+progress_epsilon: 0.20
+blacklist_radius: 1.00
+
+plan_period: 1.0
+scan_pause: 1.5

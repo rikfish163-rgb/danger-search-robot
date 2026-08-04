@@ -1,0 +1,95 @@
+<launch>
+
+  <!-- ===================================================== -->
+  <!-- 可配置开关                                             -->
+  <!-- ===================================================== -->
+
+  <arg name="start_bridge"
+       default="true"/>
+
+  <arg name="start_fast_lio"
+       default="true"/>
+
+  <arg name="start_level_tf"
+       default="true"/>
+
+  <arg name="start_world_calibration"
+       default="true"/>
+
+  <arg name="start_projection"
+       default="true"/>
+
+  <!-- 先让FAST-LIO积累一段时间，再进行world/map_level标定 -->
+  <arg name="calibration_delay"
+       default="10"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 1. SimEnv Livox数据转换                                -->
+  <!-- ===================================================== -->
+
+  <node if="$(arg start_bridge)"
+        pkg="danger_search_robot"
+        type="unitree_livox_bridge_launcher.sh"
+        name="unitree_livox_bridge"
+        output="screen"
+        required="true"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 2. FAST-LIO                                           -->
+  <!-- ===================================================== -->
+
+  <include if="$(arg start_fast_lio)"
+           file="$(find fast_lio)/launch/mapping_mid360.launch"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 3. 建立水平导航坐标系 map_level                        -->
+  <!-- ===================================================== -->
+
+  <include if="$(arg start_level_tf)"
+           file="$(find danger_search_robot)/sensor_adapter/launch/fastlio_level_tf.launch"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 4. 自动标定并发布 world -> map_level                   -->
+  <!-- ===================================================== -->
+
+  <node if="$(arg start_world_calibration)"
+        pkg="danger_search_robot"
+        type="world_map_level_calibrator.py"
+        name="world_map_level_calibrator"
+        output="screen"
+        required="true"
+        launch-prefix="$(find danger_search_robot)/scripts/delay_exec.sh $(arg calibration_delay)">
+
+    <param name="robot_model"
+           value="a1_gazebo"/>
+
+    <param name="sample_count"
+           value="100"/>
+
+    <param name="sample_rate"
+           value="10.0"/>
+
+    <param name="max_translation_std"
+           value="0.02"/>
+
+    <param name="parent_frame"
+           value="world"/>
+
+    <param name="child_frame"
+           value="map_level"/>
+
+  </node>
+
+
+  <!-- ===================================================== -->
+  <!-- 5. FAST-LIO三维点云转二维OccupancyGrid                 -->
+  <!-- ===================================================== -->
+
+  <include if="$(arg start_projection)"
+           file="$(find danger_search_robot)/mapping/launch/fastlio_2d_projection.launch"/>
+
+</launch>

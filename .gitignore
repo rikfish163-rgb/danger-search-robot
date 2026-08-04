@@ -1,0 +1,47 @@
+# 构建产物
+build
+build.bory_old/
+devel
+devel.bory_old/
+install/
+*.o
+*.so
+*.pyc
+
+# 虚拟环境
+.venv_vision/
+
+# 备份
+backups/
+backup_*/
+*.bak*
+*backup*
+
+# 大数据文件
+wrc-slam.zip
+*.zip
+*.img
+
+# 日志
+logs/
+*.log
+
+# 仿真楼层地图(运行时生成)
+results/floors/
+results/floor_transition_anchor.json
+results/floor_state.json
+results/multifloor_full_test/
+
+# 第三方/可恢复依赖(独立仓库)
+src/FAST_LIO/
+src/livox_ros_driver/
+
+# ROS 构建缓存
+build_log.txt
+
+# 运行时结果输出
+results/
+*.deb
+build
+devel
+*.deb

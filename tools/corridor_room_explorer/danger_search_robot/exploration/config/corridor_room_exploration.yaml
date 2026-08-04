@@ -1,0 +1,51 @@
+# Corridor-first, room-second exploration configuration
+
+map_topic: /map_confirmed
+global_frame: map_level
+base_frame: body
+move_base_action: /move_base
+
+# First run must stay true. Set false only after checking the selected marker.
+dry_run: true
+
+occupied_threshold: 50
+
+# Corridor target generation
+min_goal_clearance: 0.38
+frontier_min_cells: 4
+frontier_goal_radius: 1.20
+
+# A corridor target is never allowed to fall meaningfully behind the
+# deepest progress already reached.
+forward_margin: 0.15
+backtrack_tolerance: 0.25
+
+# Half-width of the initial-heading corridor band.
+corridor_half_width: 1.35
+corridor_center_weight: 2.0
+
+# Only after this many consecutive cycles without any forward target
+# may the state machine leave CORRIDOR_ADVANCE.
+corridor_empty_cycles_to_finish: 6
+minimum_corridor_progress: 3.0
+
+# Physical visitation coverage
+coverage_radius: 0.85
+
+# Room candidates must lie outside the corridor band.
+room_lateral_min: 1.20
+room_bin_length: 3.00
+room_progress_min: 0.60
+room_min_area: 0.80
+room_empty_cycles_to_finish: 5
+
+# Navigation safety
+min_goal_distance: 0.55
+max_goal_distance: 12.0
+goal_timeout: 75.0
+progress_timeout: 25.0
+progress_epsilon: 0.20
+blacklist_radius: 1.00
+
+plan_period: 1.0
+scan_pause: 1.5

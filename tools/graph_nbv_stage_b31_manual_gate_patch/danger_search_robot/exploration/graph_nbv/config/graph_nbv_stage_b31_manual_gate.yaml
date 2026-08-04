@@ -1,0 +1,97 @@
+# Graph NBV Stage B.3.1 — manual gate startup
+
+map_topic: /map_confirmed
+global_frame: map_level
+base_frame: body
+move_base_action: /move_base
+make_plan_service: /move_base/make_plan
+
+# true: select and visualize goals but do not send them to move_base
+dry_run: true
+occupied_threshold: 50
+
+# Automatic straight drive is bypassed.
+initial_forward_enabled: false
+initial_forward_only: false
+
+# At node startup, use current robot position as the gate origin.
+manual_gate_enabled: true
+
+# Robot must be facing the corridor/deeper exploration area at startup.
+manual_gate_use_robot_heading: true
+
+# Used only when manual_gate_use_robot_heading is false.
+manual_gate_forward_x: 1.0
+manual_gate_forward_y: 0.0
+
+cmd_vel_topic: /cmd_vel
+odom_frame: odom
+odom_base_frame: base
+
+# Retained but inactive in manual-gate mode.
+initial_forward_speed_x: 1.0
+initial_forward_speed_y: -0.005
+initial_forward_slow_speed_x: 0.25
+initial_forward_slow_speed_y: -0.002
+initial_forward_slowdown_distance: 11.0
+initial_forward_stop_distance: 11.85
+initial_forward_timeout: 20.0
+initial_settle_time: 2.0
+initial_control_rate: 20.0
+initial_obstacle_check_enabled: false
+initial_obstacle_stop_distance: 1.20
+initial_obstacle_check_width: 0.70
+
+# Direction-projection gate.
+gate_backtrack_margin: 0.30
+forward_finish_stable_cycles: 8
+behind_gate_penalty_after_unlock: 10.0
+
+# Local graph.
+local_sampling_radius: 8.0
+candidate_spacing: 0.80
+min_candidate_clearance: 0.48
+edge_max_length: 2.20
+edge_collision_step: 0.10
+max_local_nodes: 550
+
+# Visibility-aware information gain.
+information_radius: 3.50
+visibility_ray_count: 180
+visibility_ray_step: 0.10
+visibility_wall_dilation: 0.12
+visibility_unknown_depth: 1.20
+min_visible_unknown_gain: 0.15
+min_visible_frontier_cells: 2
+
+# Local utility.
+weight_unknown_gain: 2.20
+weight_frontier_gain: 0.15
+weight_clearance: 1.20
+weight_path_cost: 0.42
+weight_revisit: 2.50
+preferred_clearance: 0.75
+weight_wall_proximity: 5.0
+
+# Whole-map relocation.
+global_frontier_min_cells: 4
+global_frontier_max_components: 20
+global_approach_min_distance: 0.45
+global_approach_max_distance: 1.60
+global_candidates_per_component: 3
+global_max_plan_checks: 18
+global_plan_tolerance: 0.30
+weight_global_frontier_size: 0.04
+weight_global_path_cost: 0.30
+weight_global_revisit: 2.50
+
+# Coverage/navigation.
+coverage_radius: 0.90
+goal_min_distance: 0.70
+goal_max_distance: 30.0
+goal_timeout: 120.0
+no_progress_timeout: 35.0
+progress_epsilon: 0.20
+blacklist_radius: 1.00
+global_empty_cycles_to_finish: 10
+plan_period: 1.50

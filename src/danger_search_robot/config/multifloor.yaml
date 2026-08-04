@@ -1,0 +1,23 @@
+floor_count: 3
+initial_floor: 0
+floor_height: 2.6
+
+floor_world_z_offset:
+  0: 0.0
+  1: 2.6
+  2: 5.2
+
+state_file: /root/catkin_ws/results/floor_state.json
+anchor_file: /root/catkin_ws/results/floor_transition_anchor.json
+
+world_frame: world
+level_frame: map_level
+robot_frame: body
+
+elevator:
+  id: elevator_main
+  service: /call_elevator
+  floor_doors:
+    0: elevator_floor_0
+    1: elevator_floor_1
+    2: elevator_floor_2

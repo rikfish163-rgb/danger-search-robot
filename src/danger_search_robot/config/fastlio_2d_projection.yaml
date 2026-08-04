@@ -1,0 +1,77 @@
+# FAST-LIO 点云输入
+input_cloud_topic: /cloud_registered_body
+
+# 二维地图输出
+output_topic: /map_raw
+confirmed_output_topic: /map_confirmed
+
+# 多楼层地图必须使用持久 world 坐标。
+# world -> map_level 由首层初始化或跨层 reanchor 节点提供。
+global_frame: world
+sensor_frame: body
+height_filter_frame: world
+
+# 二维地图
+resolution: 0.10
+map_width: 100.0
+map_height: 100.0
+origin_x: -50.0
+origin_y: -50.0
+
+# 高度过滤：相对当前传感器高度计算，因此可跨楼层使用
+use_sensor_relative_height: true
+min_obstacle_height: -0.25
+max_obstacle_height: 1.20
+
+min_range: 0.30
+max_range: 12.0
+
+# Log-Odds 概率占据地图
+hit_probability: 0.72
+miss_probability: 0.49
+min_probability: 0.12
+max_probability: 0.97
+free_threshold: 0.30
+occupied_threshold: 0.65
+
+# Nearest-Azimuth 自由空间射线
+azimuth_bin_degrees: 0.25
+endpoint_guard_radius: 0.10
+free_ray_endpoint_margin_cells: 0
+
+# 已有障碍迟滞
+occupied_latch_probability: 0.70
+occupied_clear_probability: 0.55
+occupied_miss_scale: 1.0
+
+# 多帧障碍确认
+confirmation_hit_scans: 3
+confirmation_max_scan_gap: 20
+confirmation_min_neighbors: 0
+confirmation_spatial_tolerance_cells: 1
+
+point_stride: 1
+max_rays_per_scan: 5000
+publish_rate: 2.0
+tf_timeout: 0.20
+reject_zero_stamp: true
+
+# ============================================================
+# 多楼层独立地图持久化
+# ============================================================
+floor_persistence_enabled: true
+
+# elevator_floor_transition.py 维护的权威楼层文件
+floor_state_file: /root/catkin_ws/results/floor_state.json
+
+# 每层完整内部状态保存位置
+floor_maps_root: /root/catkin_ws/results/floors
+
+initial_floor: 0
+floor_count: 3
+
+# 节点持续运行时，每秒检查两次楼层文件
+floor_state_poll_rate: 2.0
+
+# 自动保存当前楼层完整内部状态
+floor_autosave_period: 5.0

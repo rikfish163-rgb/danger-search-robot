@@ -1,0 +1,399 @@
+
+# 当前准确的完整启动顺序
+
+## 终端 1：启动 SimEnv
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+cd ~/catkin_ws/src/SimEnv
+./auto.sh
+```
+
+等待机器人和控制器完成启动，然后在这个终端按：
+
+```text
+2
+```
+
+先让机器人站立。
+
+暂时不要按 `6`。
+
+---
+
+## 终端 2：启动 Livox bridge
+
+这一项不能漏掉：
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+python3 \
+~/catkin_ws/src/danger_search_robot/sensor_adapter/scripts/unitree_livox_bridge.py
+```
+
+它负责把 SimEnv 的 Livox 数据接到 FAST-LIO 使用的消息链路。
+
+检查：
+
+```bash
+rostopic list | grep livox
+```
+
+并检查 FAST-LIO 所需的 Livox 点云话题是否在持续发布：
+
+```bash
+rostopic hz /livox/lidar
+```
+
+若你当前配置实际使用的是另一个 bridge 输出名，以 `mapping_mid360.launch` 和 YAML 中配置的 `lid_topic` 为准。
+
+---
+
+## 终端 3：启动 FAST-LIO
+注意：一定要先运行开门指令再启动FAST-LIO，不然会导致定位漂移
+开门：rosservice call /set_door_state "{door_id: 'main_entrance', open: true}"
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch fast_lio mapping_mid360.launch
+```
+
+检查：
+
+```bash
+rostopic hz /Odometry
+```
+
+```bash
+rostopic hz /cloud_registered_body
+```
+
+这两项持续有数据以后再继续。
+
+---
+
+## 终端 4：启动 FAST-LIO 水平坐标转换
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot fastlio_level_tf.launch
+```
+注意：启动后应该在Rviz中将fixed frame调整为map_level
+对应文件位于：
+
+```text
+~/catkin_ws/src/danger_search_robot/sensor_adapter/launch/fastlio_level_tf.launch
+```
+
+检查：
+
+```bash
+rosrun tf tf_echo map_level body
+```
+
+出现连续坐标后按 `Ctrl+C`。
+
+---
+
+## 终端 5：启动 world 与 map_level 标定
+注意：运行时机器人一定要静止在出生点
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot world_map_level_calibration.launch
+```
+
+这一步负责建立或校准仿真世界坐标与 `map_level` 之间的关系。
+
+检查 TF：
+
+```bash
+rosrun tf tf_echo world map_level
+```
+
+如果该 launch 的节点已经由你当前 `fastlio_level_tf.launch` 内部包含，ROS 会出现重复 TF 发布或重复节点名；但根据此前实际逐项启动记录，这一项是单独启动的，正常测试流程保留。
+
+---
+
+## 终端 6：启动三维点云到二维地图投影
+
+使用已经验证过的完整路径启动：
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch \
+~/catkin_ws/src/danger_search_robot/mapping/launch/fastlio_2d_projection.launch
+```
+
+检查二维地图：
+
+```bash
+rostopic echo -n 1 /map_confirmed/header
+```
+
+预期：
+
+```text
+frame_id: "map_level"
+```
+
+检查地图是否持续更新：
+
+```bash
+rostopic hz /map_confirmed
+```
+
+---
+
+## 终端 7：单独启动 move_base 和 TEB
+
+这里不用 `navigation_stack.launch`。
+
+使用 TEB 版本：
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot move_base_teb.launch
+```
+
+`move_base` 和 TEB 不需要分别启动。这个 launch 会启动：
+
+```text
+move_base
+├── GlobalPlanner
+├── global costmap
+├── local costmap
+└── TebLocalPlannerROS
+```
+
+检查 `/move_base`：
+
+```bash
+rosnode ping -c 2 /move_base
+```
+
+检查局部规划器：
+
+```bash
+rosparam get /move_base/base_local_planner
+```
+
+必须返回：
+
+```text
+teb_local_planner/TebLocalPlannerROS
+```
+
+检查全局规划器：
+
+```bash
+rosparam get /move_base/base_global_planner
+```
+
+预期：
+
+```text
+global_planner/GlobalPlanner
+```
+
+检查 Graph NBV 依赖的服务：
+
+```bash
+rosservice list | grep '^/move_base/make_plan$'
+```
+
+必须看到：
+
+```text
+/move_base/make_plan
+```
+
+---
+
+## 终端 8：启动唯一可用的统一视觉栈
+注意：这一步启动的时候可能会报错，但是大概率不会影响结果。只要检查一切正常就可以
+视觉保留总入口：
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot vision_stack.launch
+```
+
+视觉内部的 YOLO、RGB-D 定位、TargetManager 和 ResultWriter 不再分别启动。
+
+等待约 8 秒后检查：
+
+```bash
+rosnode list | grep -Ei \
+"yolo|vision|localization|target|writer"
+```
+
+查看结果：
+
+```bash
+watch -n 1 \
+'cat ~/catkin_ws/results/detected_danger.json 2>/dev/null || echo waiting'
+```
+
+---
+
+# 系统全部启动后再切换 `/cmd_vel` 模式
+
+回到运行 `auto.sh` 的终端，按：
+
+```text
+6
+```
+
+因此前半段严格顺序是：
+
+```text
+auto.sh
+→ 按 2
+→ Livox bridge
+→ FAST-LIO
+→ fastlio_level_tf
+→ world_map_level_calibration
+→ fastlio_2d_projection
+→ move_base_teb
+→ vision_stack
+→ 回 auto.sh 按 6
+```
+
+---
+
+# 手动把机器人开到走廊起点
+
+当前自动进入走廊程序先不用。
+
+手动控制机器人到走廊起点后：
+
+```text
+机器人停稳
+机头朝向走廊深处
+```
+
+发布零速度：
+
+```bash
+rostopic pub -1 /cmd_vel geometry_msgs/Twist \
+"linear:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+angular:
+  x: 0.0
+  y: 0.0
+  z: 0.0"
+```
+
+检查当前位置和方向是否正常：
+
+```bash
+rosrun tf tf_echo map_level body
+```
+
+---
+
+## 终端 9：启动当前稳定的手动门控探索
+
+```bash
+conda deactivate 2>/dev/null || true
+
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+
+roslaunch danger_search_robot \
+graph_nbv_stage_b31_manual_gate.launch \
+exploration_dry_run:=false
+```
+
+检查状态：
+
+```bash
+rostopic echo /graph_nbv/status
+```
+
+检查门控：
+
+```bash
+rostopic echo /graph_nbv/gate_state
+```
+
+初始预期：
+
+```text
+FORWARD_REGION_LOCKED
+```
+
+---
+
+# 最终准确流程
+
+```text
+1. ./auto.sh
+2. 按 2 站立
+3. unitree_livox_bridge.py
+4. fast_lio/mapping_mid360.launch
+5. fastlio_level_tf.launch
+6. world_map_level_calibration.launch
+7. fastlio_2d_projection.launch
+8. move_base_teb.launch
+9. vision_stack.launch
+10. 回 auto.sh 按 6
+11. 手动开到走廊起点
+12. 停稳并朝向走廊深处
+13. graph_nbv_stage_b31_manual_gate.launch
+```
+
+明确废弃作为日常入口的两个文件：
+
+```text
+slam_stack.launch
+navigation_stack.launch
+```
+
+唯一继续使用的统一总栈是：
+
+```text
+vision_stack.launch
+```
+
+另外，当前不要运行整个工作空间的：
+
+```bash
+catkin_make
+```
+
+否则会再次触发 `livox_sdk.h` 缺失的编译错误。后续启动流程就以这份逐项顺序为唯一基线。

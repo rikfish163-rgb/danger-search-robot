@@ -1,0 +1,10 @@
+<launch>
+
+    <node pkg="tf"
+          type="static_transform_publisher"
+          name="fastlio_level_tf"
+          args="0 0 0
+                0 0.382683432 0 0.923879533
+                map_level camera_init 100"/>
+
+</launch>

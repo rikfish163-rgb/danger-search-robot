@@ -1,0 +1,47 @@
+# Stage-B map-only graph NBV configuration
+
+map_topic: /map_confirmed
+global_frame: map_level
+base_frame: body
+move_base_action: /move_base
+
+# First validation must use true.
+dry_run: true
+
+occupied_threshold: 50
+
+# Local viewpoint graph
+local_sampling_radius: 6.0
+candidate_spacing: 0.80
+min_candidate_clearance: 0.48
+edge_max_length: 2.20
+edge_collision_step: 0.10
+max_candidate_count: 240
+
+# Approximate map information gain
+information_radius: 3.50
+frontier_radius: 2.20
+min_unknown_gain_m2: 0.35
+
+# Utility:
+# U = map gain + frontier support + clearance
+#     - graph path cost - revisit penalty
+weight_unknown_gain: 2.20
+weight_frontier_gain: 0.12
+weight_clearance: 1.20
+weight_path_cost: 0.42
+weight_revisit: 2.50
+
+# Physical trajectory coverage
+coverage_radius: 0.90
+
+# Goal execution
+goal_min_distance: 0.70
+goal_max_distance: 9.0
+goal_timeout: 90.0
+no_progress_timeout: 30.0
+progress_epsilon: 0.20
+blacklist_radius: 1.00
+
+empty_cycles_to_finish: 8
+plan_period: 1.50

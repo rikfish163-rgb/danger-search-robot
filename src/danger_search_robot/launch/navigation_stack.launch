@@ -1,0 +1,15 @@
+<launch>
+
+  <!-- 当前导航系统统一使用：
+       global_frame: map_level
+       robot_base_frame: body
+       map_topic: /map_confirmed
+  -->
+
+  <arg name="start_move_base"
+       default="true"/>
+
+  <include if="$(arg start_move_base)"
+           file="$(find danger_search_robot)/navigation/launch/move_base.launch"/>
+
+</launch>

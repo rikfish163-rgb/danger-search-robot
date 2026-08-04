@@ -1,0 +1,29 @@
+<launch>
+  <node pkg="danger_search_robot"
+        type="path_collision_forward_recovery.py"
+        name="path_collision_forward_recovery"
+        output="screen"
+        respawn="false">
+
+    <!-- 路径碰撞持续 5 秒仿真时间 -->
+    <param name="collision_hold_time" value="5.0"/>
+
+    <!-- 无条件直行 1 秒仿真时间 -->
+    <param name="forward_duration" value="1.0"/>
+    <param name="forward_speed" value="0.10"/>
+
+    <!-- 只判断局部路径前方 1.5 米 -->
+    <param name="check_path_distance" value="1.50"/>
+
+    <!-- 关闭膨胀后，只把值 100 当作障碍 -->
+    <param name="collision_cost_threshold" value="100"/>
+
+    <param name="local_costmap_topic"
+           value="/move_base/local_costmap/costmap"/>
+
+    <param name="local_plan_topic"
+           value="/move_base/TebLocalPlannerROS/local_plan"/>
+
+    <param name="cmd_vel_topic" value="/cmd_vel"/>
+  </node>
+</launch>
