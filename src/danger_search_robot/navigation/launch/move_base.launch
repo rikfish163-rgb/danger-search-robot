@@ -1,0 +1,31 @@
+<launch>
+
+    <node pkg="move_base"
+          type="move_base"
+          name="move_base"
+          output="screen"
+          clear_params="true">
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common.yaml"
+                  command="load"
+                  ns="global_costmap"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common.yaml"
+                  command="load"
+                  ns="local_costmap"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/global_costmap.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/local_costmap.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/dwa_local_planner.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/move_base.yaml"
+                  command="load"/>
+
+    </node>
+
+</launch>

@@ -1,0 +1,14 @@
+<launch>
+  <arg name="input_topic" default="/danger_observation" />
+  <arg name="output_topic" default="/confirmed_danger" />
+  <arg name="reset_service" default="/target_manager/reset" />
+  <arg name="expected_frame" default="world" />
+
+  <node pkg="danger_target_manager" type="target_manager_node.py" name="target_manager" output="screen" required="true">
+    <rosparam command="load" file="$(find danger_target_manager)/config/target_manager.yaml" />
+    <param name="input_topic" value="$(arg input_topic)" />
+    <param name="output_topic" value="$(arg output_topic)" />
+    <param name="reset_service" value="$(arg reset_service)" />
+    <param name="expected_frame" value="$(arg expected_frame)" />
+  </node>
+</launch>

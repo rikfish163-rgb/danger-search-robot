@@ -1,0 +1,15 @@
+<launch>
+  <arg name="dry_run" default="true"/>
+
+  <node pkg="danger_search_robot"
+        type="corridor_room_exploration_node.py"
+        name="corridor_room_explorer"
+        output="screen"
+        respawn="false">
+
+    <rosparam command="load"
+              file="$(find danger_search_robot)/exploration/config/corridor_room_exploration.yaml"/>
+
+    <param name="dry_run" value="$(arg dry_run)"/>
+  </node>
+</launch>

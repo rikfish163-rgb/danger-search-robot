@@ -1,0 +1,309 @@
+<?xml version="1.0"?>
+
+<launch>
+  <!-- ===================================================== -->
+  <!-- 运行模式                                                -->
+  <!-- Gazebo环境通常使用true；真实机器人通常使用false       -->
+  <!-- ===================================================== -->
+  <arg name="use_sim_time" default="true" />
+
+  <!-- ===================================================== -->
+  <!-- 输入接口                                                -->
+  <!-- ===================================================== -->
+  <arg
+    name="image_topic"
+    default="/real_sense/rgb/image_raw"
+  />
+
+  <arg
+    name="pointcloud_topic"
+    default="/real_sense/depth/points"
+  />
+
+  <!-- ===================================================== -->
+  <!-- 中间输出接口                                            -->
+  <!-- ===================================================== -->
+  <arg
+    name="detections_topic"
+    default="/yolo/detections"
+  />
+
+  <arg
+    name="observation_topic"
+    default="/danger_observation"
+  />
+
+  <arg
+    name="confirmed_topic"
+    default="/confirmed_danger"
+  />
+
+  <!-- ===================================================== -->
+  <!-- 有效三维观测和结果文件使用的全局坐标系             -->
+  <!-- ===================================================== -->
+  <arg
+    name="global_frame"
+    default="world"
+  />
+
+  <!-- ===================================================== -->
+  <!-- YOLO参数                                                -->
+  <!-- 使用功能包内部权重            -->
+  <!-- ===================================================== -->
+  <arg
+    name="model_path"
+    default="$(find quadruped_vision)/weights/best.pt"
+  />
+
+  <arg
+    name="conf_threshold"
+    default="0.70"
+  />
+
+  <arg
+    name="iou_threshold"
+    default="0.45"
+  />
+
+  <arg
+    name="image_size"
+    default="640"
+  />
+
+  <arg
+    name="required_class_name"
+    default="red_sphere"
+  />
+
+  <arg
+    name="device"
+    default="auto"
+  />
+
+  <arg
+    name="enable_imshow"
+    default="false"
+  />
+
+  <arg
+    name="enable_debug_log"
+    default="false"
+  />
+
+  <arg
+    name="publish_localization_debug"
+    default="false"
+  />
+
+  <!-- ===================================================== -->
+  <!-- 结果文件接口元数据                                      -->
+  <!-- 留空时从<workspace>/generated_building自动寻找              -->
+  <!-- ===================================================== -->
+  <arg
+    name="team_scene_info"
+    default=""
+  />
+
+  <!-- 可选的catkin工作空间根目录；留空时由功能包路径推导 -->
+  <arg
+    name="workspace_root"
+    default=""
+  />
+
+  <!-- 未从team_scene_info取得路径时的可选结果文件路径 -->
+  <arg
+    name="default_result_file"
+    default=""
+  />
+
+  <!-- 全局时间配置 -->
+  <param
+    name="/use_sim_time"
+    value="$(arg use_sim_time)"
+  />
+
+  <!-- ===================================================== -->
+  <!-- 1. 实时YOLO检测                                         -->
+  <!-- RGB Image -> DetectionArray                            -->
+  <!-- ===================================================== -->
+  <node
+    pkg="quadruped_vision"
+    type="yolo_detector.py"
+    name="yolo_detector_node"
+    output="screen"
+    required="true"
+  >
+    <param
+      name="image_topic"
+      value="$(arg image_topic)"
+    />
+
+    <param
+      name="detections_topic"
+      value="$(arg detections_topic)"
+    />
+
+    <param
+      name="model_path"
+      value="$(arg model_path)"
+    />
+
+    <param
+      name="conf_threshold"
+      value="$(arg conf_threshold)"
+    />
+
+    <param
+      name="iou_threshold"
+      value="$(arg iou_threshold)"
+    />
+
+    <param
+      name="image_size"
+      value="$(arg image_size)"
+    />
+
+    <param
+      name="required_class_name"
+      value="$(arg required_class_name)"
+    />
+
+    <param
+      name="device"
+      value="$(arg device)"
+    />
+
+    <param
+      name="queue_size"
+      value="1"
+    />
+
+    <param
+      name="enable_imshow"
+      value="$(arg enable_imshow)"
+    />
+
+    <param
+      name="enable_debug_log"
+      value="$(arg enable_debug_log)"
+    />
+  </node>
+
+  <!-- ===================================================== -->
+  <!-- 2. 点云ROI、RANSAC球拟合、TF坐标转换                    -->
+  <!-- DetectionArray + PointCloud2 -> DangerObservation     -->
+  <!-- ===================================================== -->
+  <include
+    file="$(find vision_localization)/launch/localization.launch"
+  >
+    <arg
+      name="detection_topic"
+      value="$(arg detections_topic)"
+    />
+
+    <arg
+      name="pointcloud_topic"
+      value="$(arg pointcloud_topic)"
+    />
+
+    <arg
+      name="target_frame"
+      value="$(arg global_frame)"
+    />
+
+    <arg
+      name="danger_observation_topic"
+      value="$(arg observation_topic)"
+    />
+
+    <arg
+      name="use_sim_time"
+      value="$(arg use_sim_time)"
+    />
+
+    <arg
+      name="publish_debug"
+      value="$(arg publish_localization_debug)"
+    />
+  </include>
+
+  <!-- ===================================================== -->
+  <!-- 3. 连续帧确认、轨迹关联、空间去重                       -->
+  <!-- DangerObservation -> ConfirmedDanger                  -->
+  <!-- ===================================================== -->
+  <include
+    file="$(find danger_target_manager)/launch/target_manager.launch"
+  >
+    <arg
+      name="input_topic"
+      value="$(arg observation_topic)"
+    />
+
+    <arg
+      name="output_topic"
+      value="$(arg confirmed_topic)"
+    />
+
+    <arg
+      name="reset_service"
+      value="/target_manager/reset"
+    />
+
+    <arg
+      name="expected_frame"
+      value="$(arg global_frame)"
+    />
+  </include>
+
+  <!-- ===================================================== -->
+  <!-- 4. JSON结果写入                                          -->
+  <!-- 默认结果模式仅接受world坐标                            -->
+  <!-- ===================================================== -->
+  <node
+    pkg="danger_target_manager"
+    type="result_writer_node.py"
+    name="danger_result_writer"
+    output="screen"
+    required="true"
+  >
+    <param
+      name="confirmed_topic"
+      value="$(arg confirmed_topic)"
+    />
+
+    <param
+      name="expected_frame"
+      value="$(arg global_frame)"
+    />
+
+    <param
+      name="allow_non_world_test_output"
+      value="false"
+    />
+
+    <param
+      name="team_scene_info"
+      value="$(arg team_scene_info)"
+    />
+
+    <param
+      name="default_result_file"
+      value="$(arg default_result_file)"
+    />
+
+    <param
+      name="workspace_root"
+      value="$(arg workspace_root)"
+    />
+
+    <param
+      name="spatial_dedup_radius"
+      value="0.40"
+    />
+
+    <param
+      name="fixed_exploration_time"
+      value="-1.0"
+    />
+  </node>
+</launch>

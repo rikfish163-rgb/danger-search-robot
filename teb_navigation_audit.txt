@@ -1,0 +1,210 @@
+========================================
+DATE
+========================================
+2026年 07月 26日 星期日 17:44:13 CST
+
+========================================
+TEB PACKAGE
+========================================
+/opt/ros/noetic/share/teb_local_planner
+
+========================================
+MOVE_BASE FILES
+========================================
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/costmap_common.yaml
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/dwa_local_planner.yaml
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/global_costmap.yaml
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/local_costmap.yaml
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/move_base.yaml
+/home/bory/catkin_ws/src/danger_search_robot/navigation/launch/move_base.launch
+
+========================================
+NAVIGATION REFERENCES
+========================================
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/costmap_common.yaml:1:robot_radius: 0.20
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/costmap_common.yaml:8:inflation_radius: 0.22
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/global_costmap.yaml:3:  global_frame: map_level
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/global_costmap.yaml:4:  robot_base_frame: body
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/global_costmap.yaml:27:    inflation_radius: 0.22
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/move_base.yaml:15:base_global_planner: "global_planner/GlobalPlanner"
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/move_base.yaml:16:base_local_planner: "dwa_local_planner/DWAPlannerROS"
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/local_costmap.yaml:3:  global_frame: map_level
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/local_costmap.yaml:4:  robot_base_frame: body
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/local_costmap.yaml:33:    inflation_radius: 0.22
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/dwa_local_planner.yaml:1:DWAPlannerROS:
+/home/bory/catkin_ws/src/danger_search_robot/navigation/config/dwa_local_planner.yaml:3:  odom_topic: /Odometry
+/home/bory/catkin_ws/src/danger_search_robot/launch/navigation_stack.launch:4:       global_frame: map_level
+/home/bory/catkin_ws/src/danger_search_robot/launch/navigation_stack.launch:5:       robot_base_frame: body
+/home/bory/catkin_ws/src/danger_search_robot/exploration/launch/explore_lite.launch:10:    <param name="robot_base_frame" value="body"/>
+/home/bory/catkin_ws/src/danger_search_robot/exploration/config/corridor_room_exploration.yaml:4:global_frame: map_level
+/home/bory/catkin_ws/src/danger_search_robot/config/fastlio_2d_projection.yaml:9:global_frame: map_level
+
+========================================
+MOVE_BASE LAUNCH CONTENTS
+========================================
+
+######## FILE: /home/bory/catkin_ws/src/danger_search_robot/navigation/launch/move_base.launch ########
+<launch>
+
+    <node pkg="move_base"
+          type="move_base"
+          name="move_base"
+          output="screen"
+          clear_params="true">
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common.yaml"
+                  command="load"
+                  ns="global_costmap"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common.yaml"
+                  command="load"
+                  ns="local_costmap"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/global_costmap.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/local_costmap.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/dwa_local_planner.yaml"
+                  command="load"/>
+
+        <rosparam file="$(find danger_search_robot)/navigation/config/move_base.yaml"
+                  command="load"/>
+
+    </node>
+
+</launch>
+
+========================================
+NAVIGATION YAML CONTENTS
+========================================
+
+######## FILE: /home/bory/catkin_ws/src/danger_search_robot/navigation/config/costmap_common.yaml ########
+robot_radius: 0.20
+
+transform_tolerance: 0.5
+
+obstacle_range: 3.0
+raytrace_range: 4.0
+
+inflation_radius: 0.22
+cost_scaling_factor: 8.0
+
+######## FILE: /home/bory/catkin_ws/src/danger_search_robot/navigation/config/dwa_local_planner.yaml ########
+DWAPlannerROS:
+
+  odom_topic: /Odometry
+
+  # A1 第一版导航速度：先求稳
+  max_vel_x: 0.40
+  min_vel_x: 0.0
+
+  max_vel_y: 0.0
+  min_vel_y: 0.0
+
+  max_vel_trans: 0.40
+  min_vel_trans: 0.0
+
+  max_vel_theta: 1.0
+  min_vel_theta: 0.20
+
+  # FAST-LIO Odometry 的 twist 可能不能可靠反映实际速度，
+  # 因此这里不能使用过小的动态窗口加速度限制
+  acc_lim_x: 5.0
+  acc_lim_y: 0.0
+  acc_lim_theta: 12.0
+
+  xy_goal_tolerance: 0.30
+  yaw_goal_tolerance: 0.35
+  latch_xy_goal_tolerance: true
+
+  sim_time: 1.5
+
+  vx_samples: 15
+  vy_samples: 1
+  vtheta_samples: 30
+
+  path_distance_bias: 32.0
+  goal_distance_bias: 20.0
+  occdist_scale: 0.05
+
+  forward_point_distance: 0.325
+
+  stop_time_buffer: 0.2
+
+  scaling_speed: 0.20
+  max_scaling_factor: 0.2
+
+  oscillation_reset_dist: 0.10
+
+  trans_stopped_vel: 0.02
+  theta_stopped_vel: 0.02
+
+  prune_plan: true
+
+######## FILE: /home/bory/catkin_ws/src/danger_search_robot/navigation/config/global_costmap.yaml ########
+global_costmap:
+
+  global_frame: map_level
+  robot_base_frame: body
+
+  update_frequency: 2.0
+  publish_frequency: 1.0
+
+  transform_tolerance: 0.5
+
+  static_map: true
+  rolling_window: false
+
+  plugins:
+
+    - name: static_layer
+      type: "costmap_2d::StaticLayer"
+
+    - name: inflation_layer
+      type: "costmap_2d::InflationLayer"
+
+  static_layer:
+    map_topic: /map_confirmed
+    subscribe_to_updates: false
+
+  inflation_layer:
+    inflation_radius: 0.22
+    cost_scaling_factor: 8.0
+
+######## FILE: /home/bory/catkin_ws/src/danger_search_robot/navigation/config/local_costmap.yaml ########
+local_costmap:
+
+  global_frame: map_level
+  robot_base_frame: body
+
+  update_frequency: 5.0
+  publish_frequency: 2.0
+
+  transform_tolerance: 0.5
+
+  static_map: false
+  rolling_window: true
+
+  width: 6.0
+  height: 6.0
+  resolution: 0.10
+
+  plugins:
+
+    - name: static_layer
+      type: "costmap_2d::StaticLayer"
+
+    - name: inflation_layer
+      type: "costmap_2d::InflationLayer"
+
+  static_layer:
+    map_topic: /map_confirmed
+    subscribe_to_updates: false
+    track_unknown_space: false
+    unknown_cost_value: -1
+
+  inflation_layer:
+    inflation_radius: 0.22
+    cost_scaling_factor: 8.0

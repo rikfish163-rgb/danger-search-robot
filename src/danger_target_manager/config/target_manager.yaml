@@ -1,0 +1,20 @@
+# ROS接口参数
+
+input_topic: "/danger_observation"
+output_topic: "/confirmed_danger"
+reset_service: "/target_manager/reset"
+expected_frame: "world"
+
+# 候选目标关联、确认和去重参数
+
+window_size: 7
+min_valid_count: 5
+candidate_radius: 0.20
+association_radius: 0.40
+history_dedup_radius: 0.40
+max_consecutive_misses: 3
+observation_timeout: 1.0
+frame_flush_delay: 0.05
+diagnostic_period: 1.0
+update_reported_position: true
+reported_position_alpha: 0.10

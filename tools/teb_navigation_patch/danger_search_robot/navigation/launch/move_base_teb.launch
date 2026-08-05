@@ -1,0 +1,30 @@
+<launch>
+  <node pkg="move_base" type="move_base" name="move_base"
+        output="screen" clear_params="true">
+    <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common_teb.yaml"
+              command="load" ns="global_costmap"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common_teb.yaml"
+              command="load" ns="local_costmap"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/global_costmap_teb.yaml"
+              command="load"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/local_costmap_teb.yaml"
+              command="load"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/move_base.yaml"
+              command="load"/>
+
+    <param name="base_global_planner"
+           value="global_planner/GlobalPlanner"/>
+    <param name="base_local_planner"
+           value="teb_local_planner/TebLocalPlannerROS"/>
+
+    <param name="planner_frequency" value="1.0"/>
+    <param name="controller_frequency" value="10.0"/>
+    <param name="planner_patience" value="5.0"/>
+    <param name="controller_patience" value="8.0"/>
+    <param name="oscillation_timeout" value="10.0"/>
+    <param name="oscillation_distance" value="0.20"/>
+
+    <rosparam file="$(find danger_search_robot)/navigation/config/teb_local_planner.yaml"
+              command="load"/>
+  </node>
+</launch>

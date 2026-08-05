@@ -1,0 +1,19 @@
+<launch>
+  <arg name="map_topic" default="/map_confirmed"/>
+  <arg name="map_frame" default="map_level"/>
+  <arg name="base_frame" default="body"/>
+
+  <node pkg="danger_search_robot"
+        type="hybrid_exploration_node.py"
+        name="hybrid_exploration"
+        output="screen"
+        respawn="false">
+    <rosparam command="load"
+              file="$(find danger_search_robot)/exploration/config/hybrid_exploration.yaml"/>
+
+    <param name="map_topic" value="$(arg map_topic)"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+  </node>
+</launch>
+

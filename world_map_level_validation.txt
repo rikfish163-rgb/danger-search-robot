@@ -1,0 +1,12 @@
+等待 Gazebo 和 TF 数据……
+机器人模型： a1_gazebo
+开始验证。让机器人运动约 2～5 米。
+按 Ctrl+C 结束并输出统计结果。
+
+samples=  10 | truth=[-0.969  1.878  0.309] | slam=[-0.978  1.817  0.317] | XY=0.062 m | 3D=0.062 m | angle=4.54 deg
+samples=  20 | truth=[-0.817  2.396  0.312] | slam=[-0.842  2.337  0.316] | XY=0.064 m | 3D=0.064 m | angle=1.10 deg
+samples=  30 | truth=[-0.572  2.897  0.305] | slam=[-0.610  2.832  0.309] | XY=0.076 m | 3D=0.076 m | angle=1.10 deg
+samples=  40 | truth=[-0.341  3.366  0.314] | slam=[-0.367  3.302  0.305] | XY=0.069 m | 3D=0.069 m | angle=0.92 deg
+samples=  50 | truth=[-0.271  3.482  0.319] | slam=[-0.281  3.465  0.315] | XY=0.021 m | 3D=0.021 m | angle=1.13 deg
+samples=  60 | truth=[-0.276  3.472  0.321] | slam=[-0.289  3.452  0.320] | XY=0.023 m | 3D=0.023 m | angle=0.64 deg
+samples=  70 | truth=[-0.267  3.477  0.314] | slam=[-0.280  3.453  0.314] | XY=0.027 m | 3D=0.027 m | angle=0.19 deg

@@ -1,0 +1,44 @@
+<launch>
+  <node pkg="danger_search_robot"
+        type="path_collision_forward_recovery.py"
+        name="path_collision_forward_recovery"
+        output="screen"
+        respawn="false">
+
+    <!-- 路径持续与致命障碍相交 5 秒仿真时间后触发 -->
+    <param name="collision_hold_time" value="5.0"/>
+
+    <!-- 触发后以 0.10 m/s 直行 1 秒仿真时间 -->
+    <param name="forward_duration" value="1.0"/>
+    <param name="forward_speed" value="0.10"/>
+
+    <!-- 只检测局部路径前 1.5 米 -->
+    <param name="check_path_distance" value="1.50"/>
+
+    <!-- costmap OccupancyGrid 中只有 100 作为碰撞 -->
+    <param name="collision_cost_threshold" value="100"/>
+
+    <!-- 一次恢复后等待 2 秒再重新累计 -->
+    <param name="cooldown_time" value="2.0"/>
+
+    <!-- 直行安全检查额外向前检查 5 cm -->
+    <param name="forward_safety_margin" value="0.05"/>
+
+    <param name="body_frame" value="body"/>
+
+    <param name="local_costmap_topic"
+           value="/move_base/local_costmap/costmap"/>
+
+    <param name="local_plan_topic"
+           value="/move_base/TebLocalPlannerROS/local_plan"/>
+
+    <param name="cmd_vel_topic" value="/cmd_vel"/>
+    <param name="cancel_topic" value="/move_base/cancel"/>
+
+    <param name="footprint_param"
+           value="/move_base/local_costmap/footprint"/>
+
+    <param name="robot_radius_param"
+           value="/move_base/local_costmap/robot_radius"/>
+  </node>
+</launch>

@@ -1,0 +1,62 @@
+# Graph NBV Stage B.2
+# Local NBV + global frontier relocation
+
+map_topic: /map_confirmed
+global_frame: map_level
+base_frame: body
+move_base_action: /move_base
+make_plan_service: /move_base/make_plan
+
+dry_run: true
+occupied_threshold: 50
+
+# Local graph: all safe points become graph nodes.
+local_sampling_radius: 8.0
+candidate_spacing: 0.80
+min_candidate_clearance: 0.48
+edge_max_length: 2.20
+edge_collision_step: 0.10
+max_local_nodes: 550
+
+# Visibility-aware map gain.
+information_radius: 3.50
+visibility_ray_count: 180
+visibility_ray_step: 0.10
+visibility_wall_dilation: 0.12
+visibility_unknown_depth: 1.20
+min_visible_unknown_gain: 0.15
+min_visible_frontier_cells: 2
+
+# Local utility.
+weight_unknown_gain: 2.20
+weight_frontier_gain: 0.15
+weight_clearance: 1.20
+weight_path_cost: 0.42
+weight_revisit: 2.50
+preferred_clearance: 0.75
+weight_wall_proximity: 5.0
+
+# Whole-map frontier relocation.
+global_frontier_min_cells: 4
+global_frontier_max_components: 20
+global_approach_min_distance: 0.45
+global_approach_max_distance: 1.60
+global_candidates_per_component: 3
+global_max_plan_checks: 18
+global_plan_tolerance: 0.30
+weight_global_frontier_size: 0.04
+weight_global_path_cost: 0.30
+weight_global_revisit: 2.50
+
+# Coverage/navigation.
+coverage_radius: 0.90
+goal_min_distance: 0.70
+goal_max_distance: 30.0
+goal_timeout: 120.0
+no_progress_timeout: 35.0
+progress_epsilon: 0.20
+blacklist_radius: 1.00
+
+# Only global exhaustion can finish the mission.
+global_empty_cycles_to_finish: 10
+plan_period: 1.50

@@ -1,0 +1,23 @@
+<launch>
+  <arg name="clear_all_floor_maps" default="false" />
+
+  <!--
+    只启动二维投影。
+    不启动 SimEnv。
+    不启动 FAST-LIO。
+    不重新发布 map_level TF。
+  -->
+
+  <node pkg="danger_search_robot"
+        type="nearest_azimuth_projection_node"
+        name="fastlio_2d_projection"
+        output="screen"
+        required="true">
+
+    <rosparam command="load"
+              file="$(find danger_search_robot)/config/fastlio_2d_projection.yaml"/>
+    <param name="clear_all_floor_maps" value="$(arg clear_all_floor_maps)" />
+
+  </node>
+
+</launch>

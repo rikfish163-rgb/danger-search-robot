@@ -1,0 +1,178 @@
+<launch>
+
+  <!-- ===================================================== -->
+  <!-- 可配置参数                                             -->
+  <!-- ===================================================== -->
+
+  <arg name="target_frame"
+       default="world"/>
+
+  <arg name="image_topic"
+       default="/real_sense/rgb/image_raw"/>
+
+  <arg name="pointcloud_topic"
+       default="/real_sense/depth/points"/>
+
+  <arg name="detection_topic"
+       default="/yolo/detections"/>
+
+  <arg name="observation_topic"
+       default="/danger_observation"/>
+
+  <arg name="confirmed_topic"
+       default="/confirmed_danger"/>
+
+  <!-- 给结果写入器、去重节点和定位节点预留启动时间 -->
+  <arg name="yolo_start_delay"
+       default="8"/>
+
+  <arg name="reset_results"
+       default="true"/>
+
+  <arg name="start_recording"
+       default="true"/>
+
+  <arg name="publish_debug"
+       default="false"/>
+
+  <!-- 等待FAST-LIO发布检测时刻对应的TF -->
+  <arg name="tf_timeout"
+       default="0.5"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 1. SLAM坐标树中的RealSense光学坐标系                   -->
+  <!-- ===================================================== -->
+
+  <node pkg="tf"
+        type="static_transform_publisher"
+        name="slam_realsense_optical_tf"
+        output="screen"
+        args="
+          0.093743593234
+          0.023290000000
+         -0.013747351471
+         -0.270728101097
+          0.270728101094
+         -0.653227598373
+          0.653227598374
+          body
+          slam_real_sense_optical_frame
+          100"/>
+
+
+  <!-- ===================================================== -->
+  <!-- 2. 最先启动结果写入器                                  -->
+  <!-- ===================================================== -->
+
+  <node pkg="danger_target_manager"
+        type="result_writer_node.py"
+        name="danger_result_writer"
+        output="screen"
+        required="true">
+
+    <param name="expected_frame"
+           value="world"/>
+
+  </node>
+
+
+  <!-- ===================================================== -->
+  <!-- 3. 自动清空旧结果并开始探索计时                        -->
+  <!-- ===================================================== -->
+
+  <node pkg="danger_search_robot"
+        type="prepare_result_writer.py"
+        name="prepare_danger_result_writer"
+        output="screen">
+
+    <param name="reset_results"
+           value="$(arg reset_results)"/>
+
+    <param name="start_recording"
+           value="$(arg start_recording)"/>
+
+  </node>
+
+
+  <!-- ===================================================== -->
+  <!-- 4. 多帧确认、目标关联与历史去重                        -->
+  <!-- ===================================================== -->
+
+  <include file="$(find danger_target_manager)/launch/target_manager.launch">
+
+    <arg name="input_topic"
+         value="$(arg observation_topic)"/>
+
+    <arg name="output_topic"
+         value="$(arg confirmed_topic)"/>
+
+    <arg name="expected_frame"
+         value="world"/>
+
+  </include>
+
+
+  <!-- ===================================================== -->
+  <!-- 5. 红球深度定位，直接输出world坐标                     -->
+  <!-- ===================================================== -->
+
+  <include file="$(find vision_localization)/launch/localization.launch">
+
+    <arg name="target_frame"
+         value="$(arg target_frame)"/>
+
+    <arg name="tf_source_frame_override"
+         value="slam_real_sense_optical_frame"/>
+
+    <arg name="detection_topic"
+         value="$(arg detection_topic)"/>
+
+    <arg name="pointcloud_topic"
+         value="$(arg pointcloud_topic)"/>
+
+    <arg name="publish_debug"
+         value="$(arg publish_debug)"/>
+</include>
+
+  <!-- localization.launch没有暴露tf_timeout参数，
+       在其配置加载后直接覆盖定位节点私有参数。 -->
+  <param name="/danger_localization_node/tf_timeout"
+         value="$(arg tf_timeout)"/>
+
+
+
+  <!-- ===================================================== -->
+  <!-- 6. 最后启动YOLO，避免确认消息早于写入器                -->
+  <!-- ===================================================== -->
+
+  <node pkg="quadruped_vision"
+        type="yolo_detector_venv"
+        name="yolo_detector_node"
+        output="screen"
+        required="true"
+        launch-prefix="$(find danger_search_robot)/scripts/delay_exec.sh $(arg yolo_start_delay)">
+
+    <!-- 继承原有检测参数 -->
+    <rosparam command="load"
+              file="$(find quadruped_vision)/config/yolo_detector.yaml"/>
+
+    <param name="image_topic"
+           value="$(arg image_topic)"/>
+
+    <param name="detections_topic"
+           value="$(arg detection_topic)"/>
+
+    <param name="model_path"
+           value="$(find quadruped_vision)/weights/best.pt"/>
+
+    <!-- RTX 5060当前Torch版本不支持，固定使用CPU -->
+    <param name="device"
+           value="cpu"/>
+
+    <env name="CUDA_VISIBLE_DEVICES"
+         value=""/>
+
+  </node>
+
+</launch>

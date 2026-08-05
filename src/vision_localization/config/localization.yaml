@@ -1,0 +1,56 @@
+# Red-sphere center localization configuration.
+# ROI使用检测框像素坐标直接索引有组织点云，
+# 因此点云必须已对齐RGB图像且宽高一致。
+
+# Inputs
+detection_topic: "/yolo/detections"
+# SimEnv默认点云的header.frame_id为real_sense_optical_frame。
+pointcloud_topic: "/real_sense/depth/points"
+
+# Outputs
+camera_output_topic: "/vision_localization/candidate_camera"
+world_output_topic: "/vision_localization/candidate_world"
+roi_debug_topic: "/vision_localization/roi_points"
+danger_observation_topic: "/danger_observation"
+
+# Target
+target_class: "red_sphere"
+
+# 有效输出所在的全局坐标系。
+# TF树需在RGB采集时刻提供target_frame <- 点云frame的变换。
+target_frame: world
+
+# 可选TF源frame覆盖。
+# 默认留空，保持原始视觉系统行为不变。
+# FAST-LIO集成时使用 slam_real_sense_optical_frame。
+tf_source_frame_override: ""
+
+# Input synchronization
+subscriber_queue_size: 5
+publisher_queue_size: 20
+sync_queue_size: 20
+sync_tolerance: 0.10
+
+# ROI extraction
+bbox_shrink_ratio: 0.05
+min_range: 0.40
+max_range: 8.0
+min_roi_points: 30
+
+# 已知目标半径约束的球体RANSAC。
+expected_sphere_radius: 0.15
+sphere_radius_tolerance: 0.02
+ransac_distance_threshold: 0.02
+ransac_max_iterations: 500
+
+# 球体拟合质量门。以下参数为已验证的初始工程值，
+# 更换相机、点云配准方式或场景后应重新评估。
+min_sphere_inliers: 50
+min_sphere_inlier_ratio: 0.15
+max_sphere_rmse: 0.025
+
+# TF
+tf_timeout: 0.10
+
+# Debug
+publish_debug: false

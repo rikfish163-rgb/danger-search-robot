@@ -1,0 +1,12 @@
+1.导致camera_init坐标系下建图偏转的原因是camera_init坐标系默认与livox_imu对齐，而livox_imu是有】旋转的
+
+2.map_level是将camera_init旋转45度，但是不平移，map_level 可以理解为“原点基本不变，但坐标轴被重新摆正后的 camera_init”
+
+3.路径生成偏转错误原因：
+路径生成公式的意图是：找到一个 world（代表gazebo真实值） → map_level（转换后的camera_init，代表fast-lio估算） 的转换，使两条轨迹的初始姿态完全重合，但是它错误地要求：初始 base 姿态（world下）与：初始 body 姿态（fast-lio下）完全重合。，由于body姿态默认与imu对齐，所以有偏转。
+
+4.高度偏差？
+
+5.机器狗初始航偏角
+
+6.FAST-LIO精度

@@ -1,0 +1,158 @@
+/////////////////////////////1打开roscore
+
+pkill -INT -f "junior_ctrl" 2>/dev/null
+pkill -INT gzclient 2>/dev/null
+pkill -INT gzserver 2>/dev/null
+pkill -INT -f "roslaunch.*multi_floor_gazeboSim.launch" 2>/dev/null
+pkill -INT -f "pointcloud2livox" 2>/dev/null
+pkill -INT -f "spawn_model.*a1_gazebo" 2>/dev/null
+pkill -INT -f "controller_manager/spawner" 2>/dev/null
+pkill -INT -f "robot_state_publisher" 2>/dev/null
+
+sleep 5
+
+pgrep -af \
+"rosmaster|roslaunch|gzserver|gzclient|junior_ctrl|pointcloud2livox|spawn_model|controller_spawner|robot_state_publisher"
+
+pkill -INT rosmaster 2>/dev/null
+pkill -INT rosout 2>/dev/null
+sleep 3
+
+ss -ltnp | grep 11311 || echo "ROS master port is free"
+
+source /opt/ros/noetic/setup.bash
+
+export ROS_MASTER_URI=http://localhost:11311
+unset ROS_HOSTNAME
+unset ROS_IP
+
+roscore
+
+/////////////////////////////2启动auto.sh(但不打开junior_control)
+
+cd ~/dg_ws_master/SimEnv-master
+
+RUN=/tmp/simenv_full_ordered_$(date +%F_%H-%M-%S)
+mkdir -p "$RUN"
+echo "$RUN" | tee /tmp/simenv_diag_current
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+
+export ROS_MASTER_URI=http://localhost:11311
+unset ROS_HOSTNAME
+unset ROS_IP
+
+# 必须在 Gazebo 和 gazebo_ros_control 初始化前加载
+rosparam load \
+  ~/dg_ws_master/SimEnv-master/config/a1_calf_ros_control_limits.yaml
+
+echo "========== calf limits =========="
+rosparam get /a1_gazebo/joint_limits/FL_calf_joint
+echo "================================="
+
+SEED=77 \
+PAUSED=true \
+AUTO_UNPAUSE=true \
+ROBOT_SPAWN_TIMEOUT=300 \
+CONTROLLER_SPAWNER_TIMEOUT=300 \
+START_CONTROLLER=0 \
+START_BUILDING_CONTROL=1 \
+GUI=false \
+ENABLE_SENSOR_DATA=1 \
+ENABLE_LIVOX=1 \
+ENABLE_LIVOX_IMU=1 \
+ENABLE_REALSENSE=1 \
+ENABLE_POINTCLOUD_CONVERTER=1 \
+ENABLE_GROUND_TRUTH=1 \
+ENABLE_REFEREE_ODOM=1 \
+ENABLE_FOOT_CONTACT_SENSOR=1 \
+FLOOR_COUNT=2 \
+./auto.sh 2>&1 | tee "$RUN/auto_server.log"
+
+//////////////////////////////3检查启动并打开junior_control
+
+rosservice call /gazebo/unpause_physics
+
+~/dg_ws_master/SimEnv-master/local_tools/start_full_junior_ordered.sh
+
+/////////////////////////////4打开GUI
+
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+
+export ROS_MASTER_URI=http://localhost:11311
+unset ROS_HOSTNAME
+unset ROS_IP
+
+gzclient --verbose
+
+/////////////////////////////5开门
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+rosservice call /set_door_state "{door_id: 'main_entrance', open: true}"
+
+/////////////////////////////6打开转换节点
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+rosrun simenv_fastlio_bridge unitree_livox_to_livox_driver.py
+
+/////////////////////////////7.打开路径可视化
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+roslaunch simenv_fastlio_bridge trajectory_compare.launch
+
+////////////////////////////8.打开FAST-LIO
+source /opt/ros/noetic/setup.bash
+source ~/dg_ws_master/SimEnv-master/devel/setup.bash
+source ~/fastlio_ws/devel/setup.bash
+
+roslaunch fast_lio mapping_simenv.launch
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

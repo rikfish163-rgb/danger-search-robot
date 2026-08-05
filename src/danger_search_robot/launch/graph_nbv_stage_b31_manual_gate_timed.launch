@@ -1,0 +1,33 @@
+<launch>
+    <arg name="exploration_dry_run"
+         default="false"/>
+
+    <arg name="exploration_time_limit"
+         default="400.0"/>
+
+    <!-- 启动原来已经验证可用的 Graph NBV -->
+    <include file="$(find danger_search_robot)/exploration/graph_nbv/launch/graph_nbv_stage_b31_manual_gate.launch">
+        <arg name="exploration_dry_run"
+             value="$(arg exploration_dry_run)"/>
+    </include>
+
+    <!-- 独立仿真时间看门狗，不修改原 NBV 主程序 -->
+    <node pkg="danger_search_robot"
+          type="nbv_sim_time_watchdog.py"
+          name="nbv_sim_time_watchdog"
+          output="screen"
+          respawn="false">
+
+        <param name="duration"
+               value="$(arg exploration_time_limit)"/>
+
+        <param name="target_node"
+               value="/graph_nbv"/>
+
+        <param name="cancel_topic"
+               value="/move_base/cancel"/>
+
+        <param name="cmd_vel_topic"
+               value="/cmd_vel"/>
+    </node>
+</launch>

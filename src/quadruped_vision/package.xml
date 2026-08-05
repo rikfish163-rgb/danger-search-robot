@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>quadruped_vision</name>
+  <version>0.1.0</version>
+
+  <description>
+    从RealSense RGB图像生成二维目标检测消息的YOLO功能包。
+  </description>
+
+  <maintainer email="caesar@todo.todo">caesar</maintainer>
+  <author email="caesar@todo.todo">caesar</author>
+ 
+
+  <license>MIT</license>
+
+
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- 本包消息生成。 -->
+  <build_depend>message_generation</build_depend>
+  <build_depend>std_msgs</build_depend>
+
+  <!-- ROS图像订阅、转换和时间同步组件。 -->
+  <build_depend>cv_bridge</build_depend>
+  <build_depend>rospy</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>message_filters</build_depend>
+
+  
+
+  <build_export_depend>std_msgs</build_export_depend>
+  <build_export_depend>sensor_msgs</build_export_depend>
+  <build_export_depend>rospy</build_export_depend>
+  <build_export_depend>cv_bridge</build_export_depend>
+
+  <exec_depend>message_runtime</exec_depend>
+
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>rospy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+
+  
+  <!-- Python脚本直接导入numpy和cv2。 -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+
+  <export>
+  </export>
+</package>

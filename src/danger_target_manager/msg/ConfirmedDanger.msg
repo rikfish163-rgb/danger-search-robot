@@ -1,0 +1,9 @@
+# 经连续帧空间一致性确认后的去重目标。
+# header.frame_id与目标管理器expected_frame一致。
+std_msgs/Header header
+# 当前任务周期内单调递增的轨迹编号；reset后从1重新开始。
+uint32 track_id
+# 窗口内有效内点坐标的分量中值。
+geometry_msgs/Point position
+# 由内点比例和已知检测置信度组合得到的[0,1]数值。
+float32 confidence

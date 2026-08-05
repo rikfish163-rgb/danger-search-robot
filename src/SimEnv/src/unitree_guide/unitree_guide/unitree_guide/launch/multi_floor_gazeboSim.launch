@@ -1,0 +1,107 @@
+<launch>
+    <arg name="wname" default="multi_floor_building"/>
+    <arg name="rname" default="a1"/>
+    <arg name="robot_path" value="(find $(arg rname)_description)"/>
+    <arg name="dollar" value="$"/>
+
+    <arg name="paused" default="true"/>
+    <arg name="use_sim_time" default="true"/>
+    <arg name="gui" default="true"/>
+    <arg name="headless" default="false"/>
+    <arg name="debug" default="false"/>
+    <arg name="user_debug" default="false"/>
+    <arg name="enable_sensor_data" default="true"/>
+    <arg name="enable_livox" default="$(arg enable_sensor_data)"/>
+    <arg name="enable_livox_imu" default="$(arg enable_livox)"/>
+    <arg name="enable_realsense" default="$(arg enable_sensor_data)"/>
+    <arg name="enable_front_camera" default="false"/>
+    <arg name="enable_referee_odom" default="true"/>
+    <arg name="enable_ground_truth" default="true"/>
+    <arg name="enable_foot_contact_sensor" default="false"/>
+    <arg name="enable_foot_force_visual" default="false"/>
+    <arg name="enable_joy_node" default="false"/>
+    <arg name="enable_pointcloud_converter" default="true"/>
+    <arg name="pointcloud_use_ground_truth_odom" default="true"/>
+    <arg name="controller_spawner_timeout" default="$(optenv CONTROLLER_SPAWNER_TIMEOUT 120)"/>
+
+    <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
+    <arg name="robot_x" default="$(optenv COMPETITION_ROBOT_X 0.0)"/>
+    <arg name="robot_y" default="$(optenv COMPETITION_ROBOT_Y -3.2)"/>
+    <arg name="robot_z" default="$(optenv COMPETITION_ROBOT_Z 0.09)"/>
+    <arg name="robot_yaw" default="$(optenv COMPETITION_ROBOT_YAW 1.5708)"/>
+
+    <param name="world_file" value="$(arg world_file)"/>
+
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <arg name="world_name" value="$(arg world_file)"/>
+        <arg name="debug" value="$(arg debug)"/>
+        <arg name="gui" value="$(arg gui)"/>
+        <arg name="paused" value="$(arg paused)"/>
+        <arg name="headless" value="$(arg headless)"/>
+    </include>
+
+    <param name="robot_description"
+           command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
+           DEBUG:=$(arg user_debug)
+           ENABLE_SENSOR_DATA:=$(arg enable_sensor_data)
+           ENABLE_LIVOX:=$(arg enable_livox)
+           ENABLE_LIVOX_IMU:=$(arg enable_livox_imu)
+           ENABLE_REALSENSE:=$(arg enable_realsense)
+           ENABLE_FRONT_CAMERA:=$(arg enable_front_camera)
+           ENABLE_GROUND_TRUTH:=$(arg enable_ground_truth)
+           ENABLE_FOOT_CONTACT_SENSOR:=$(arg enable_foot_contact_sensor)
+           ENABLE_FOOT_FORCE_VISUAL:=$(arg enable_foot_force_visual)"/>
+
+    <node pkg="gazebo_ros" type="spawn_model" name="urdf_spawner" respawn="false" output="screen"
+      args="-urdf 
+            -z $(arg robot_z)
+            -y $(arg robot_y)
+            -x $(arg robot_x)
+            -Y $(arg robot_yaw)
+            -model $(arg rname)_gazebo
+            -param robot_description"/>
+
+    <node if="$(arg enable_referee_odom)" pkg="unitree_guide" type="state_from_gazebo" name="state_from_gazebo" args="0 0 0 0 0 0" output="screen">
+        <param name="robot_name" value="$(arg rname)" />
+    </node>
+
+    <rosparam file="$(arg dollar)$(arg robot_path)/config/robot_control.yaml" command="load"/>
+
+
+    <node 
+	    pkg="controller_manager"
+	    type="spawner"
+	    name="controller_spawner"
+	    respawn="false"
+	    ns="/$(arg rname)_gazebo"
+	    args="--timeout $(arg controller_spawner_timeout)
+	    joint_state_controller
+	    FL_hip_controller FL_thigh_controller FL_calf_controller
+	    FR_hip_controller FR_thigh_controller FR_calf_controller
+	    RL_hip_controller RL_thigh_controller RL_calf_controller
+	    RR_hip_controller RR_thigh_controller RR_calf_controller"/>
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher"
+          respawn="false" output="screen">
+        <remap from="/joint_states" to="/$(arg rname)_gazebo/joint_states"/>
+    </node>
+
+    <node if="$(arg enable_joy_node)" name="joy_node" pkg="joy" type="joy_node" output="screen">
+        <param name="dev" value="/dev/input/js0" />
+        <param name="deadzone" value="0.05" />
+        <param name="autorepeat_rate" value="20" />
+    </node>
+
+    <include file="$(find unitree_controller)/launch/set_ctrl.launch">
+        <arg name="rname" value="$(arg rname)"/>
+    </include>
+
+    <group if="$(arg enable_livox)">
+        <node if="$(arg enable_pointcloud_converter)" pkg="unitree_guide" type="pointcloud2livox.py" name="pointcloud2livox" output="screen">
+            <param name="laser_blind" value="0.5" />
+            <param name="min_angle" value="-7"/>
+            <param name="max_angle" value="55"/>
+            <param name="use_ground_truth_odom" value="$(arg pointcloud_use_ground_truth_odom)"/>
+        </node>
+    </group>
+</launch>

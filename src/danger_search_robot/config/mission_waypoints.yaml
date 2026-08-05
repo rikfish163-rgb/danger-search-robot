@@ -1,0 +1,48 @@
+building:
+  floors: 3
+  floor_height: 2.6
+elevator:
+  id: elevator_main
+floor_0:
+  exploration_start:
+    x: 0.023
+    y: 7.452
+    yaw: 1.583
+  elevator_wait:
+    x: 0.32
+    y: 2.361
+    yaw: 0
+  elevator_inside:
+    x: 2.557
+    y: 2.339
+    yaw: 0
+  entrance_inside:
+    x: 0.111
+    y: 0.94
+    yaw: 1.553
+floor_1:
+  exploration_start:
+    x: 0.023
+    y: 7.452
+    yaw: 1.583
+  elevator_wait:
+    x: 0.32
+    y: 2.361
+    yaw: 0
+  elevator_inside:
+    x: 2.557
+    y: 2.339
+    yaw: 0
+floor_2:
+  exploration_start:
+    x: 0.023
+    y: 7.452
+    yaw: 1.583
+  elevator_wait:
+    x: 0.32
+    y: 2.361
+    yaw: 0
+  elevator_inside:
+    x: 2.557
+    y: 2.339
+    yaw: 0

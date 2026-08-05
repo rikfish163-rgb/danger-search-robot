@@ -1,0 +1,4 @@
+<launch>
+  <include file="$(find danger_target_manager)/launch/target_manager.launch" />
+  <test test-name="target_manager_ros_test" pkg="danger_target_manager" type="test_ros.py" time-limit="30" />
+</launch>

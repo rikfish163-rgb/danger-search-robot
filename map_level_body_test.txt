@@ -1,0 +1,84 @@
+Failure at 13.674000000
+Exception thrown:"map_level" passed to lookupTransform argument target_frame does not exist. 
+The current list of frames is:
+Frame FL_foot exists with parent FL_calf.
+Frame FL_calf exists with parent FL_thigh.
+Frame FL_thigh_shoulder exists with parent FL_hip.
+Frame FL_hip exists with parent trunk.
+Frame FR_foot exists with parent FR_calf.
+Frame FR_calf exists with parent FR_thigh.
+Frame FR_thigh_shoulder exists with parent FR_hip.
+Frame FR_hip exists with parent trunk.
+Frame RL_foot exists with parent RL_calf.
+Frame RL_calf exists with parent RL_thigh.
+Frame RL_thigh_shoulder exists with parent RL_hip.
+Frame RL_hip exists with parent trunk.
+Frame RR_foot exists with parent RR_calf.
+Frame RR_calf exists with parent RR_thigh.
+Frame RR_thigh_shoulder exists with parent RR_hip.
+Frame RR_hip exists with parent trunk.
+Frame trunk exists with parent base.
+Frame base exists with parent odom.
+Frame imu_link exists with parent trunk.
+Frame laser_livox exists with parent base.
+Frame livox_imu_link exists with parent laser_livox.
+Frame real_sense exists with parent base.
+Frame real_sense_optical_frame exists with parent real_sense.
+Frame odom exists with parent map.
+Frame FL_thigh exists with parent FL_hip.
+Frame FR_thigh exists with parent FR_hip.
+Frame RL_thigh exists with parent RL_hip.
+Frame RR_thigh exists with parent RR_hip.
+
+Failure at 13.674000000
+Exception thrown:"map_level" passed to lookupTransform argument target_frame does not exist. 
+The current list of frames is:
+Frame FL_foot exists with parent FL_calf.
+Frame FL_calf exists with parent FL_thigh.
+Frame FL_thigh_shoulder exists with parent FL_hip.
+Frame FL_hip exists with parent trunk.
+Frame FR_foot exists with parent FR_calf.
+Frame FR_calf exists with parent FR_thigh.
+Frame FR_thigh_shoulder exists with parent FR_hip.
+Frame FR_hip exists with parent trunk.
+Frame RL_foot exists with parent RL_calf.
+Frame RL_calf exists with parent RL_thigh.
+Frame RL_thigh_shoulder exists with parent RL_hip.
+Frame RL_hip exists with parent trunk.
+Frame RR_foot exists with parent RR_calf.
+Frame RR_calf exists with parent RR_thigh.
+Frame RR_thigh_shoulder exists with parent RR_hip.
+Frame RR_hip exists with parent trunk.
+Frame trunk exists with parent base.
+Frame base exists with parent odom.
+Frame imu_link exists with parent trunk.
+Frame laser_livox exists with parent base.
+Frame livox_imu_link exists with parent laser_livox.
+Frame real_sense exists with parent base.
+Frame real_sense_optical_frame exists with parent real_sense.
+Frame odom exists with parent map.
+Frame FL_thigh exists with parent FL_hip.
+Frame FR_thigh exists with parent FR_hip.
+Frame RL_thigh exists with parent RL_hip.
+Frame RR_thigh exists with parent RR_hip.
+
+At time 14.556
+- Translation: [0.021, 1.310, 0.006]
+- Rotation: in Quaternion [-0.000, 0.383, -0.001, 0.924]
+            in RPY (radian) [-0.002, 0.787, -0.002]
+            in RPY (degree) [-0.097, 45.095, -0.115]
+At time 15.552
+- Translation: [0.007, 0.451, 0.006]
+- Rotation: in Quaternion [-0.000, 0.383, -0.000, 0.924]
+            in RPY (radian) [-0.001, 0.787, -0.001]
+            in RPY (degree) [-0.085, 45.084, -0.076]
+At time 16.554
+- Translation: [-0.015, -0.775, 0.006]
+- Rotation: in Quaternion [-0.000, 0.383, 0.000, 0.924]
+            in RPY (radian) [-0.001, 0.787, -0.000]
+            in RPY (degree) [-0.051, 45.094, -0.008]
+At time 17.558
+- Translation: [-0.041, -2.261, 0.002]
+- Rotation: in Quaternion [-0.000, 0.383, 0.001, 0.924]
+            in RPY (radian) [-0.000, 0.787, 0.001]
+            in RPY (degree) [-0.027, 45.098, 0.071]

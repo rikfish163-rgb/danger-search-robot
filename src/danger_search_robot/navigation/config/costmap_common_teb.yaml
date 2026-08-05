@@ -1,0 +1,6 @@
+transform_tolerance: 0.5
+obstacle_range: 3.0
+raytrace_range: 4.0
+inflation_radius: 0.05
+cost_scaling_factor: 8.0
+robot_radius: 0.2

@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<launch>
+  <arg
+    name="rviz"
+    default="true"
+    doc="是否启动RViz"/>
+
+  <arg
+    name="target_frame"
+    default="world"
+    doc="RViz和定位输出使用的目标坐标系"/>
+
+  <include file="$(find vision_localization)/launch/localization.launch">
+    <arg
+      name="target_frame"
+      value="$(arg target_frame)"/>
+
+    <arg
+      name="publish_debug"
+      value="true"/>
+  </include>
+
+  <node
+    if="$(arg rviz)"
+    name="rviz"
+    pkg="rviz"
+    type="rviz"
+    args="-d $(find vision_localization)/rviz/localization.rviz"
+    required="false">
+  </node>
+</launch>

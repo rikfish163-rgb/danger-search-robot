@@ -1,0 +1,11 @@
+# 原始输入图像像素坐标系中的单个二维检测结果。
+# 类别名与YOLO权重中的model.names一致。
+string class_name
+# 检测置信度，范围[0,1]。
+float32 confidence
+# 左上角(xmin,ymin)，右下角(xmax,ymax)。
+# xmax/ymax作为右侧和下侧开区间边界，可以等于图像宽高。
+float32 xmin
+float32 ymin
+float32 xmax
+float32 ymax

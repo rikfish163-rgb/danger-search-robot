@@ -1,0 +1,15 @@
+<launch>
+  <arg name="dry_run" default="true"/>
+
+  <node pkg="danger_search_robot"
+        type="graph_nbv_node.py"
+        name="graph_nbv"
+        output="screen"
+        respawn="false">
+
+    <rosparam command="load"
+              file="$(find danger_search_robot)/exploration/graph_nbv/config/graph_nbv_stage_b.yaml"/>
+
+    <param name="dry_run" value="$(arg dry_run)"/>
+  </node>
+</launch>

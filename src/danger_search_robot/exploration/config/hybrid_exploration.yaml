@@ -1,0 +1,63 @@
+map_topic: /map_confirmed
+map_frame: map_level
+base_frame: body
+move_base_action: /move_base
+make_plan_service: /move_base/make_plan
+
+occupied_threshold: 50
+planning_period: 3.0
+tf_timeout: 0.5
+
+# 机器人实际轨迹附近视为已经进入/覆盖。
+coverage_radius: 0.90
+trajectory_step: 0.20
+
+# 候选点必须留有足够净空，并避免反复发送脚边目标。
+min_goal_clearance: 0.70
+min_goal_distance: 0.70
+max_goal_distance: 25.0
+
+# Frontier 参数。
+min_frontier_length: 0.60
+frontier_search_radius: 2.00
+frontier_gain_radius: 2.00
+small_frontier_gain: 3.00
+max_frontier_streak: 3
+
+# 即使地图已经被走廊中的雷达扫出，只要机器人没有进入，
+# 大面积未覆盖自由区仍会生成 coverage 目标。
+min_coverage_area: 1.50
+coverage_gain_radius: 1.50
+
+frontier_unknown_weight: 0.8
+frontier_size_weight: 0.8
+coverage_area_weight: 0.30
+clearance_weight: 3.0
+distance_weight: 0.05
+
+# 对候选点调用 move_base/make_plan 进行可达性验证。
+use_make_plan: false
+max_plan_candidates: 8
+make_plan_tolerance: 0.30
+
+# 卡死与失败保护。
+goal_timeout: 90.0
+progress_timeout: 30.0
+progress_epsilon: 0.20
+blacklist_radius: 1.50
+blacklist_timeout: 600.0
+
+# 到达内部覆盖点后，原地观察四个方向。
+scan_count: 4
+scan_dwell: 2.0
+scan_goal_timeout: 20.0
+
+# 连续多轮没有可达 frontier 或未覆盖区域才结束。
+empty_cycles_to_finish: 5
+
+
+start_exclusion_radius: 2.50
+
+min_forward_progress: -0.30
+
+progress_reward_weight: 2.50

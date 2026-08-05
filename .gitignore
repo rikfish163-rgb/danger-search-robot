@@ -1,0 +1,25 @@
+# 构建产物(含符号链接)
+build
+build.bory_old
+devel
+devel.bory_old
+install
+build_log.txt
+*.o
+*.so
+*.pyc
+*.log
+# 虚拟环境
+.venv_vision
+# 备份
+backups
+backup_*
+*.bak*
+*backup*
+# 大文件
+wrc-slam.zip
+*.zip
+*.img
+*.deb
+# 运行时结果
+results

@@ -1,0 +1,24 @@
+Waiting for /gazebo/model_states...
+Robot model: a1_gazebo
+Waiting for TF transforms...
+Collecting 100 stationary samples...
+
+========== CALIBRATION RESULT ==========
+Valid samples: 100
+
+world -> map_level translation mean [m]:
+[-0.30814772  0.70492203  0.44788345]
+translation std [m]:
+[0.00169315 0.00114369 0.00103283]
+
+world -> map_level quaternion [x y z w]:
+[ 0.0028069  -0.01711139  0.75375965  0.65692139]
+
+world -> map_level RPY [degree]:
+[-1.267245783053945, -1.5307320534865063, 97.87091397990687]
+
+Static transform publisher arguments:
+-0.308147718 0.704922025 0.447883450 0.002806905 -0.017111388 0.753759654 0.656921385 world map_level
+
+Suggested command:
+rosrun tf static_transform_publisher -0.308147718 0.704922025 0.447883450 0.002806905 -0.017111388 0.753759654 0.656921385 world map_level 100
