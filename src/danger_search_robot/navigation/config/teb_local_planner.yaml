@@ -12,7 +12,8 @@ TebLocalPlannerROS:
   min_samples: 3
   max_samples: 500
   global_plan_overwrite_orientation: true
-  allow_init_with_backwards_motion: false
+  # [member B] 2026-08-07 问题1修复: 启用后退,角落/障碍旁掉头空间不足时先倒退
+  allow_init_with_backwards_motion: true
   global_plan_viapoint_sep: 0.35
   via_points_ordered: true
   max_global_plan_lookahead_dist: 3.0
@@ -23,7 +24,7 @@ TebLocalPlannerROS:
   publish_feedback: false
 
   max_vel_x: 0.30
-  max_vel_x_backwards: 0.08
+  max_vel_x_backwards: 0.25
   max_vel_y: 0.0
   max_vel_theta: 0.65
   max_vel_trans: 0.30
@@ -40,11 +41,13 @@ TebLocalPlannerROS:
     vertices: [[0.30, 0.20], [0.30, -0.20], [-0.30, -0.20], [-0.30, 0.20]]
 
   xy_goal_tolerance: 0.30
-  yaw_goal_tolerance: 0.08
+  # [member B] 2026-08-07 问题1修复: 放宽目标朝向容差,障碍旁更容易转到位
+  yaw_goal_tolerance: 0.20
   free_goal_vel: false
   complete_global_plan: true
 
-  min_obstacle_dist: 0.15
+  # [member B] 2026-08-07 问题1修复: 路径离墙更远,减少贴边卡死
+  min_obstacle_dist: 0.20
   inflation_dist: 0.42
   dynamic_obstacle_inflation_dist: 0.42
   include_costmap_obstacles: true
