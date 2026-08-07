@@ -46,6 +46,9 @@ SimEnv → 站立(按2) → livox bridge → FAST-LIO → level_tf → world标�
 | 走廊起点停歪/门控失效 | 标定误差，gate 未验证朝向 | gate 初始化增加朝向偏差诊断（>30° 告警） |
 | rotate recovery 永久卡死 | 依赖不存在的 `/odom` 话题 | 禁用 rotate recovery + /odom relay |
 | TEB 帧不一致 | map_frame=map_level vs costmap world | map_frame 改为 world |
+| 角落/障碍旁振荡卡死 | 不会后退、路径贴边、yaw 容差严 | TEB: allow_backwards=true、min_obstacle_dist 0.20、yaw_tol 0.20 |
+| SLAM 爆炸/移动跟丢 | 点云 line 全 0 但 scan_line=6、fov=90 视野错、容器跑旧二进制 | mid360: scan_line=1、fov=360、det_range=100、extrinsic_T 修正 + 恢复容器编译二进制 |
+| level_tf 断链 | static_transform_publisher 不发布 /tf_static | 用 `static_level_tf.py`（StaticTransformBroadcaster）替代 |
 
 ### 运行时诊断日志
 
