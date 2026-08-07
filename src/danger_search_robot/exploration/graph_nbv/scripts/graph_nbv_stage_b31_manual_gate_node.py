@@ -658,14 +658,26 @@ class GraphNBVStageB31ManualGate:
         )
         self.publish_status("MANUAL_GATE_INITIALIZED")
 
+        # [member B] 2026-08-07 问题2诊断: 记录 gate 朝向与"期望走廊朝向"
+        # 的偏差,暴露走廊起点标定/停歪问题。期望朝向可配(默认90deg=+y,
+        # 出生点 yaw=1.5708 朝走廊)。偏差>30deg 时告警,提示标定可能不准。
+        expected_yaw = float(
+            rospy.get_param("~manual_gate_expected_yaw", 1.5708)
+        )
+        yaw = robot_pose[2]
+        delta = abs(((yaw - expected_yaw) + math.pi) % (2 * math.pi) - math.pi)
         rospy.loginfo(
-            "[graph_nbv] manual gate initialized "
-            "origin=(%.3f, %.3f) forward=(%.5f, %.5f) yaw=%.3f",
+            "[graph_nbv][diag] manual gate initialized "
+            "origin=(%.3f, %.3f) forward=(%.5f, %.5f) yaw=%.3f "
+            "expected_yaw=%.3f delta=%.1fdeg%s",
             self.gate_origin[0],
             self.gate_origin[1],
             self.gate_forward[0],
             self.gate_forward[1],
-            robot_pose[2],
+            yaw,
+            expected_yaw,
+            math.degrees(delta),
+            " <-- 朝向偏差大,检查走廊起点标定/停歪" if delta > 0.5236 else "",
         )
 
     def handle_initial_forward(
@@ -1474,6 +1486,19 @@ class GraphNBVStageB31ManualGate:
                 stats[component_id, cv2.CC_STAT_AREA]
             ) >= self.global_frontier_min_cells
         ]
+        # [member B] diag: 统计被 min_cells 滤掉的小组件数,定位"末端房间
+        # frontier 被滤掉"问题。若 small_discarded 持续>0 且无目标,
+        # 说明末端房间 frontier 存在但尺寸小(被幻影切碎),需继续降阈值。
+        if len(component_ids) < component_count - 1:
+            small_discarded = component_count - 1 - len(component_ids)
+            rospy.loginfo_throttle(
+                2.0,
+                "[graph_nbv][diag] global frontiers=%d "
+                "small_discarded(<%d cells)=%d",
+                len(component_ids),
+                self.global_frontier_min_cells,
+                small_discarded,
+            )
         component_ids.sort(
             key=lambda component_id: int(
                 stats[component_id, cv2.CC_STAT_AREA]

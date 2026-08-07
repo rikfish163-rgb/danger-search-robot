@@ -77,11 +77,17 @@ weight_frontier_gain: 0.15
 weight_clearance: 1.20
 weight_path_cost: 0.42
 weight_revisit: 2.50
-preferred_clearance: 0.55
+# [member B] 2026-08-07 问题1修复: 0.55->0.75,让 NBV 目标点偏好离墙更远,
+# 避免把目标放在障碍物旁导致掉头/绕障时局部规划卡死。
+# 实测: safe 格 63% clearance>=0.75,不会导致 targets 归零。
+preferred_clearance: 0.75
 weight_wall_proximity: 1.0
 
 # Whole-map relocation.
-global_frontier_min_cells: 4
+# [member B] 2026-08-07 问题3修复: 原 4 会把被幻影/门框切碎的小 frontier
+# 组件(末端房间入口)滤掉 -> 误判探索完成。降为 2,让末端房间边界可被识别。
+# 2格=0.02m²,仍能过滤噪声;配合诊断日志观察被滤组件分布。
+global_frontier_min_cells: 2
 global_frontier_max_components: 20
 global_approach_min_distance: 0.25
 global_approach_max_distance: 1.20
