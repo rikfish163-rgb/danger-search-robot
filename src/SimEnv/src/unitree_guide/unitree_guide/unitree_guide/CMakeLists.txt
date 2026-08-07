@@ -3,9 +3,9 @@ project(unitree_guide)
 set(TORCH_CUDA_ARCH_LIST "8.9")
 # 添加 torch 依赖，默认使用 /home/ros/Guoyulun/Download/libtorch（如不同，请提供正确路径）
 # 确保 CMake 可以加载 libtorch 附带的 cmake 模块（例如 CheckLinkerFlag）
-list(APPEND CMAKE_MODULE_PATH "/home/bory/.local/lib/python3.8/site-packages/torch/share/cmake/Caffe2/public")
-list(APPEND CMAKE_MODULE_PATH "/home/bory/.local/lib/python3.8/site-packages/torch/share/cmake")
-set(Torch_DIR "/home/bory/libtorch/share/cmake/Torch")
+list(APPEND CMAKE_MODULE_PATH "/root/catkin_ws/deps/libtorch/share/cmake/Caffe2/public")
+list(APPEND CMAKE_MODULE_PATH "/root/catkin_ws/deps/libtorch/share/cmake")
+set(Torch_DIR "/root/catkin_ws/deps/libtorch/share/cmake/Torch")
 find_package(Torch REQUIRED)
 
 set(ROBOT_TYPE A1)         # The type of robot, support Go1 and A1 currently
