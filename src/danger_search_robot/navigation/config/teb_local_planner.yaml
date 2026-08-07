@@ -1,6 +1,10 @@
 TebLocalPlannerROS:
   odom_topic: /Odometry
-  map_frame: map_level
+  # 2026-08-06 帧统一：costmap 的 global_frame 是 world，map_frame 必须一致。
+  # 原来 map_level 会让 TEB 把 global plan/local plan 变换到 map_level，
+  # 与 world 系的 costmap 不一致 -> 恢复节点 frame mismatch 永久失效。
+  # map_level -> body 由 fastlio_level_tf + FAST-LIO 提供，world 链路完整。
+  map_frame: world
 
   teb_autosize: true
   dt_ref: 0.30
