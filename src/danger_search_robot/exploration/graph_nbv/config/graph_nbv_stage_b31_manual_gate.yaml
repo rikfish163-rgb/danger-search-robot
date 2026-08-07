@@ -43,16 +43,23 @@ initial_obstacle_stop_distance: 1.20
 initial_obstacle_check_width: 0.70
 
 # Direction-projection gate.
-gate_backtrack_margin: 0.30
+gate_backtrack_margin: 0.50
 forward_finish_stable_cycles: 8
 behind_gate_penalty_after_unlock: 10.0
 
 # Local graph.
 local_sampling_radius: 8.0
-candidate_spacing: 0.80
-min_candidate_clearance: 0.51
-edge_max_length: 2.20
+candidate_spacing: 0.50
+min_candidate_clearance: 0.35
+edge_max_length: 4.0
 edge_collision_step: 0.10
+# [member B] Edges must stay >= this distance (m) from walls so the graph
+# only routes through passages move_base/TEB can actually execute.
+# NOTE 2026-08-06 (实测修正): 设 0.40 会把物理上能走的门洞全挡掉——confirmed
+# 地图里门框/门板幻影残影把门洞 clearance 压到 0.10~0.14m,0.15 起可达性就从
+# ~94% 断崖到 ~53%(三层实测绘得)。幻影在投影层,不是这里;NBV 只设 0.10 挡
+# 真正零宽的缝,不重复制造"NBV 不进窄门"的卡死。正解见投影节点排查。
+edge_min_clearance: 0.10
 max_local_nodes: 550
 
 # Visibility-aware information gain.
@@ -62,7 +69,7 @@ visibility_ray_step: 0.10
 visibility_wall_dilation: 0.12
 visibility_unknown_depth: 1.20
 min_visible_unknown_gain: 0.15
-min_visible_frontier_cells: 2
+min_visible_frontier_cells: 1
 
 # Local utility.
 weight_unknown_gain: 2.20
@@ -70,14 +77,14 @@ weight_frontier_gain: 0.15
 weight_clearance: 1.20
 weight_path_cost: 0.42
 weight_revisit: 2.50
-preferred_clearance: 0.80
-weight_wall_proximity: 5.0
+preferred_clearance: 0.55
+weight_wall_proximity: 1.0
 
 # Whole-map relocation.
 global_frontier_min_cells: 4
 global_frontier_max_components: 20
-global_approach_min_distance: 0.45
-global_approach_max_distance: 1.60
+global_approach_min_distance: 0.25
+global_approach_max_distance: 1.20
 global_candidates_per_component: 3
 global_max_plan_checks: 18
 global_plan_tolerance: 0.30
@@ -87,11 +94,11 @@ weight_global_revisit: 2.50
 
 # Coverage/navigation.
 coverage_radius: 0.90
-goal_min_distance: 0.70
+goal_min_distance: 0.40
 goal_max_distance: 30.0
 goal_timeout: 120.0
 no_progress_timeout: 35.0
 progress_epsilon: 0.20
-blacklist_radius: 1.00
+blacklist_radius: 0.60
 global_empty_cycles_to_finish: 10
 plan_period: 1.50

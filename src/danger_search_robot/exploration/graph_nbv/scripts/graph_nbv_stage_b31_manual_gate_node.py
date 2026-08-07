@@ -177,6 +177,16 @@ class GraphNBVStageB31ManualGate:
         self.edge_collision_step = float(
             rospy.get_param("~edge_collision_step", 0.10)
         )
+        # [member B] Minimum clearance required along a graph edge (metres).
+        # The graph reachability model must match what move_base/TEB can
+        # actually execute: routing through slivers that are free in the map
+        # but too narrow for the robot makes move_base abort at every goal.
+        # NOTE 2026-08-06 (实测修正): 0.40 会挡掉物理能走的门洞——confirmed 地图
+        # 门框/门板幻影把门洞 clearance 压到 0.10~0.14m,0.15 起可达性断崖
+        # (三层实测绘得 ~94% -> ~53%)。幻影在投影层,此处设 0.10 只挡零宽缝。
+        self.edge_min_clearance = float(
+            rospy.get_param("~edge_min_clearance", 0.10)
+        )
         self.max_local_nodes = int(
             rospy.get_param("~max_local_nodes", 550)
         )
@@ -321,6 +331,9 @@ class GraphNBVStageB31ManualGate:
         self.last_progress_time = rospy.Time(0)
 
         self.blacklist: List[Tuple[float, float]] = []
+        # [member B] diag: number of edges rejected this cycle because some
+        # point on them was closer to a wall than edge_min_clearance.
+        self.edge_clearance_rejected = 0
         self.global_empty_cycles = 0
         self.finished = False
 
@@ -1072,14 +1085,20 @@ class GraphNBVStageB31ManualGate:
         )
 
         nodes: List[GraphNode] = []
+        # [member B] diagnostics: track why candidates get filtered
+        gate_rejected = 0
+        clearance_filtered = 0
 
         for row in range(row_min, row_max + 1, spacing_cells):
             for col in range(col_min, col_max + 1, spacing_cells):
                 if not layers["safe"][row, col]:
+                    if layers["known_free"][row, col] > 0:
+                        clearance_filtered += 1
                     continue
 
                 x, y = self.grid_to_world(row, col)
                 if not self.gate_allows(x, y):
+                    gate_rejected += 1
                     continue
 
                 distance = math.hypot(
@@ -1131,6 +1150,24 @@ class GraphNBVStageB31ManualGate:
                 -node.clearance,
             )
         )
+
+        # [member B] diagnostics: why local planning may have no target
+        target_count = sum(1 for n in nodes if n.is_target)
+        rospy.loginfo_throttle(
+            2.0,
+            "[graph_nbv][diag] local nodes=%d targets=%d "
+            "gate_rejected=%d clearance_filtered=%d "
+            "safe_cells=%d known_free=%d radius=%.1f spacing=%.2f",
+            len(nodes),
+            target_count,
+            gate_rejected,
+            clearance_filtered,
+            int(layers["safe"].sum()),
+            int(layers["known_free"].sum()),
+            self.local_sampling_radius,
+            self.candidate_spacing,
+        )
+
         nodes = nodes[: self.max_local_nodes]
 
         for index, node in enumerate(nodes):
@@ -1165,7 +1202,20 @@ class GraphNBVStageB31ManualGate:
             if cell is None:
                 return False
             row, col = cell
-            if not layers["safe"][row, col]:
+            # [member B] edge only needs known-free (move_base does real
+            # obstacle avoidance); requiring full safe(clearance>=min) here
+            # made all target nodes unreachable near narrow doors.
+            if not layers["known_free"][row, col]:
+                return False
+            # [member B] but do not route through slivers that TEB cannot
+            # execute: if every free cell on the edge is closer to a wall
+            # than edge_min_clearance, move_base will abort at that goal.
+            if (
+                self.edge_min_clearance > 0.0
+                and layers["clearance"][row, col]
+                < self.edge_min_clearance
+            ):
+                self.edge_clearance_rejected += 1
                 return False
 
         return True
@@ -1185,6 +1235,7 @@ class GraphNBVStageB31ManualGate:
             for index in range(robot_index + 1)
         }
         edges: List[Tuple[int, int]] = []
+        self.edge_clearance_rejected = 0
 
         positions = [(node.x, node.y) for node in nodes]
         positions.append((robot_pose[0], robot_pose[1]))
@@ -1250,6 +1301,10 @@ class GraphNBVStageB31ManualGate:
         robot_pose: Tuple[float, float, float],
     ) -> Optional[GraphNode]:
         best = None
+        # [member B] diagnostics: why local targets are rejected
+        finite_targets = 0
+        blacklisted_targets = 0
+        dist_filtered = 0
 
         for node in nodes:
             node.path_cost = distances.get(
@@ -1260,7 +1315,9 @@ class GraphNBVStageB31ManualGate:
                 continue
             if not math.isfinite(node.path_cost):
                 continue
+            finite_targets += 1
             if self.is_blacklisted(node.x, node.y):
+                blacklisted_targets += 1
                 continue
 
             distance = math.hypot(
@@ -1271,6 +1328,7 @@ class GraphNBVStageB31ManualGate:
                 distance < self.goal_min_distance
                 or distance > self.goal_max_distance
             ):
+                dist_filtered += 1
                 continue
 
             wall_penalty = max(
@@ -1297,6 +1355,15 @@ class GraphNBVStageB31ManualGate:
             if best is None or node.utility > best.utility:
                 best = node
 
+        rospy.loginfo_throttle(
+            2.0,
+            "[graph_nbv][diag] select: finite_targets=%d "
+            "blacklisted=%d dist_filtered=%d selected=%s",
+            finite_targets,
+            blacklisted_targets,
+            dist_filtered,
+            "YES" if best is not None else "NONE",
+        )
         return best
 
     def make_pose(
@@ -1791,6 +1858,20 @@ class GraphNBVStageB31ManualGate:
                 now - self.last_progress_time
             ).to_sec()
 
+            # [member B] corridor diagnostic: while the goal is active, log
+            # progress so a corridor stall is visible in the run log.
+            rospy.loginfo_throttle(
+                5.0,
+                "[graph_nbv][diag] NAV %s goal=(%.2f,%.2f) "
+                "dist=%.2f total=%.1f no_progress=%.1f",
+                self.current_goal_kind,
+                goal_xy[0],
+                goal_xy[1],
+                distance,
+                total_time,
+                no_progress_time,
+            )
+
             if (
                 total_time > self.goal_timeout
                 or no_progress_time > self.no_progress_timeout
@@ -2142,6 +2223,24 @@ class GraphNBVStageB31ManualGate:
             adjacency, robot_index
         )
 
+        # [member B] diagnostics: graph connectivity
+        robot_nbrs = len(adjacency.get(robot_index, []))
+        finite_nodes = sum(
+            1 for i, d in distances.items()
+            if i != robot_index and math.isfinite(d)
+        )
+        rospy.loginfo_throttle(
+            2.0,
+            "[graph_nbv][diag] graph: nodes=%d edges=%d "
+            "robot_neighbors=%d finite_reachable=%d "
+            "edge_clear_rejected=%d",
+            len(nodes),
+            len(edges),
+            robot_nbrs,
+            finite_nodes,
+            self.edge_clearance_rejected,
+        )
+
         local_target = self.select_local_target(
             nodes, distances, robot_pose
         )
@@ -2207,6 +2306,30 @@ class GraphNBVStageB31ManualGate:
                     self.forward_empty_cycles,
                     self.forward_finish_stable_cycles,
                 )
+                # [member B] diagnostics: gate heading vs robot heading
+                if (
+                    self.gate_origin is not None
+                    and self.gate_forward is not None
+                ):
+                    gate_ang = math.atan2(
+                        self.gate_forward[1], self.gate_forward[0]
+                    )
+                    delta_deg = math.degrees(
+                        robot_pose[2] - gate_ang
+                    )
+                    rospy.logwarn_throttle(
+                        3.0,
+                        "[graph_nbv][diag] gate origin=(%.2f,%.2f) "
+                        "heading=%.1fdeg robot=%.1fdeg delta=%.1fdeg "
+                        "margin=%.2f locked=%s",
+                        self.gate_origin[0],
+                        self.gate_origin[1],
+                        math.degrees(gate_ang),
+                        math.degrees(robot_pose[2]),
+                        delta_deg,
+                        self.gate_backtrack_margin,
+                        self.gate_locked,
+                    )
 
                 if (
                     self.forward_empty_cycles
@@ -2247,6 +2370,16 @@ class GraphNBVStageB31ManualGate:
                 "cycle=%d/%d",
                 self.global_empty_cycles,
                 self.global_empty_cycles_to_finish,
+            )
+            # [member B] diagnostics: global frontier summary
+            rospy.loginfo_throttle(
+                3.0,
+                "[graph_nbv][diag] global frontiers=%d "
+                "global_empty=%d/%d locked=%s",
+                len(self.last_global_frontiers),
+                self.global_empty_cycles,
+                self.global_empty_cycles_to_finish,
+                self.gate_locked,
             )
 
             if (
