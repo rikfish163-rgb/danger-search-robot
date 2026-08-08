@@ -1,0 +1,36 @@
+common:
+    lid_topic:  "/livox/lidar"
+    imu_topic:  "/livox/imu_compensated"
+    time_sync_en: false
+    time_offset_lidar_to_imu: 0.0
+
+preprocess:
+    lidar_type: 1
+    scan_line: 36
+    blind: 0.5
+
+mapping:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+    fov_degree:    360
+    det_range:     100.0
+    extrinsic_est_en:  false
+    # IMU倾斜补偿方案: /livox/imu_compensated 已在 base 系(水平)
+    # extrinsic_R = R_y(45deg): 激光点云从倾斜lidar系转到base系
+    # extrinsic_T = lidar原点在补偿IMU(=base)系中的位置
+    extrinsic_T: [ -0.02343, 0.02329, -0.03897 ]
+    extrinsic_R: [ 0.7071, 0, 0.7071,
+                   0, 1, 0,
+                   -0.7071, 0, 0.7071]
+
+publish:
+    path_en:  false
+    scan_publish_en:  true
+    dense_publish_en: true
+    scan_bodyframe_pub_en: true
+
+pcd_save:
+    pcd_save_en: true
+    interval: -1

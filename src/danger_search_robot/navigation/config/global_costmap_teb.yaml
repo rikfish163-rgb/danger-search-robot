@@ -17,9 +17,11 @@ global_costmap:
     track_unknown_space: true
     unknown_cost_value: -1
   inflation_layer:
-    inflation_radius: 1.0
-    cost_scaling_factor: 12.0
+    # [final6] 全局膨胀降为0.3: SLAM链位姿有小偏移时, 起点格不易落入膨胀区导致规划失败
+    # 实际避障由TEB局部规划承担
+    inflation_radius: 0.3
+    cost_scaling_factor: 3.0
 inflation_layer:
   enabled: true
-  inflation_radius: 0.05
-  cost_scaling_factor: 8.0
+  inflation_radius: 0.3
+  cost_scaling_factor: 3.0
