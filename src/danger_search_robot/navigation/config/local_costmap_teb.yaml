@@ -3,7 +3,7 @@ local_costmap:
   robot_base_frame: body
   update_frequency: 8.0
   publish_frequency: 3.0
-  transform_tolerance: 2.0
+  transform_tolerance: 0.5
   static_map: false
   rolling_window: true
   width: 6.0
@@ -20,9 +20,9 @@ local_costmap:
     track_unknown_space: false
     unknown_cost_value: -1
   inflation_layer:
-    inflation_radius: 1.0
-    cost_scaling_factor: 12.0
+    inflation_radius: 0.30
+    cost_scaling_factor: 6.0
 inflation_layer:
   enabled: true
-  inflation_radius: 0.05
-  cost_scaling_factor: 8.0
+  inflation_radius: 0.30
+  cost_scaling_factor: 6.0

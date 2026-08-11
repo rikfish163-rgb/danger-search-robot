@@ -542,7 +542,12 @@ def _build_team_scene_info(
 ) -> dict[str, object]:
     return {
         "schema": "team_scene_info_v1",
-        "coordinate_frame": "world",
+        # Perception and SLAM remain in world internally.  Competition output
+        # is translated to the public spawn origin while retaining world-axis
+        # orientation; these concepts must not be conflated.
+        "coordinate_frame": "robot_start_origin_world_axes",
+        "localization_frame": "world",
+        "result_coordinate_frame": "robot_start_origin_world_axes",
         "robot_start": robot_start,
         "public_scene": {
             "door_ids": [

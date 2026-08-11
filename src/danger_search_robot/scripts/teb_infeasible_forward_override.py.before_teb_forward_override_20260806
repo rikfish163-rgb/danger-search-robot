@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Exclusive cmd_vel gateway with a TEB infeasibility forward override.
+
+Normal mode:
+    /cmd_vel_nav -> /cmd_vel
+
+Recovery mode:
+    When move_base continuously logs the configured TEB infeasibility warning
+    for trigger_duration seconds of ROS time, navigation commands are ignored
+    and a fixed positive linear.x command is published for force_duration
+    seconds of ROS time.  The active move_base goal is not canceled.
+"""
+
+import threading
+
+import rospy
+from geometry_msgs.msg import Twist
+from rosgraph_msgs.msg import Log
+
+
+class TebInfeasibleForwardOverride:
+    def __init__(self):
+        self.nav_cmd_topic = rospy.get_param("~nav_cmd_topic", "/cmd_vel_nav")
+        self.output_cmd_topic = rospy.get_param("~output_cmd_topic", "/cmd_vel")
+        self.log_topic = rospy.get_param("~log_topic", "/rosout")
+        self.warning_node = rospy.get_param("~warning_node", "/move_base")
+        self.warning_text = rospy.get_param(
+            "~warning_text",
+            "TebLocalPlannerROS: trajectory is not feasible. Resetting planner...",
+        )
+
+        self.trigger_duration = float(rospy.get_param("~trigger_duration", 0.0))
+        self.force_duration = float(rospy.get_param("~force_duration", 2.0))
+        self.forward_speed = float(rospy.get_param("~forward_speed", 0.20))
+        self.warning_gap_reset = float(rospy.get_param("~warning_gap_reset", 0.75))
+        self.publish_rate = float(rospy.get_param("~publish_rate", 30.0))
+
+        if self.trigger_duration < 0.0:
+            raise ValueError("trigger_duration must be >= 0")
+        if self.force_duration <= 0.0:
+            raise ValueError("force_duration must be > 0")
+        if self.forward_speed <= 0.0:
+            raise ValueError("forward_speed must be > 0")
+        if self.warning_gap_reset <= 0.0:
+            raise ValueError("warning_gap_reset must be > 0")
+        if self.publish_rate <= 0.0:
+            raise ValueError("publish_rate must be > 0")
+
+        self._lock = threading.RLock()
+        self._warning_start = None
+        self._last_warning = None
+        self._forcing = False
+        self._force_until = None
+        self._last_timer_time = None
+
+        self._cmd_pub = rospy.Publisher(
+            self.output_cmd_topic, Twist, queue_size=20
+        )
+        self._nav_sub = rospy.Subscriber(
+            self.nav_cmd_topic,
+            Twist,
+            self._nav_cmd_callback,
+            queue_size=20,
+            tcp_nodelay=True,
+        )
+        self._log_sub = rospy.Subscriber(
+            self.log_topic, Log, self._log_callback, queue_size=200
+        )
+        self._timer = rospy.Timer(
+            rospy.Duration.from_sec(1.0 / self.publish_rate), self._timer_callback
+        )
+        rospy.on_shutdown(self._on_shutdown)
+
+        rospy.logwarn(
+            "TEB forward override armed: warning_duration=%.3fs, "
+            "forward=%.3fm/s for %.3fs (ROS simulated time).",
+            self.trigger_duration,
+            self.forward_speed,
+            self.force_duration,
+        )
+
+    @staticmethod
+    def _zero_twist():
+        return Twist()
+
+    def _forward_twist(self):
+        command = Twist()
+        command.linear.x = self.forward_speed
+        return command
+
+    def _reset_warning_window_locked(self):
+        self._warning_start = None
+        self._last_warning = None
+
+    def _reset_for_time_jump_locked(self, now):
+        self._reset_warning_window_locked()
+        self._forcing = False
+        self._force_until = None
+        self._last_timer_time = now
+        rospy.logwarn("ROS time moved backwards; TEB forward override state reset.")
+
+    def _nav_cmd_callback(self, message):
+        with self._lock:
+            if self._forcing:
+                return
+        self._cmd_pub.publish(message)
+
+    def _log_callback(self, message):
+        if message.level < Log.WARN:
+            return
+        if self.warning_node and message.name != self.warning_node:
+            return
+        if self.warning_text not in message.msg:
+            return
+
+        now = rospy.Time.now()
+        if now.is_zero():
+            return
+
+        with self._lock:
+            if self._forcing:
+                return
+            if self._last_warning is None:
+                self._warning_start = now
+            else:
+                gap = (now - self._last_warning).to_sec()
+                if gap < 0.0 or gap > self.warning_gap_reset:
+                    self._warning_start = now
+            self._last_warning = now
+
+    def _timer_callback(self, _event):
+        now = rospy.Time.now()
+        if now.is_zero():
+            return
+
+        command = None
+        trigger_log = False
+        finish_log = False
+
+        with self._lock:
+            if self._last_timer_time is not None and now < self._last_timer_time:
+                self._reset_for_time_jump_locked(now)
+                command = self._zero_twist()
+            else:
+                self._last_timer_time = now
+
+            if self._forcing:
+                if now < self._force_until:
+                    command = self._forward_twist()
+                else:
+                    self._forcing = False
+                    self._force_until = None
+                    self._reset_warning_window_locked()
+                    command = self._zero_twist()
+                    finish_log = True
+            else:
+                if self._last_warning is not None:
+                    silence = (now - self._last_warning).to_sec()
+                    if silence > self.warning_gap_reset:
+                        self._reset_warning_window_locked()
+
+                if self._warning_start is not None:
+                    elapsed = (now - self._warning_start).to_sec()
+                    if elapsed >= self.trigger_duration:
+                        self._forcing = True
+                        self._force_until = now + rospy.Duration.from_sec(
+                            self.force_duration
+                        )
+                        self._reset_warning_window_locked()
+                        command = self._forward_twist()
+                        trigger_log = True
+
+        if command is not None:
+            self._cmd_pub.publish(command)
+        if trigger_log:
+            rospy.logerr(
+                "TEB trajectory remained infeasible for %.3fs: bypassing "
+                "navigation and forcing linear.x=%.3fm/s for %.3fs.",
+                self.trigger_duration,
+                self.forward_speed,
+                self.force_duration,
+            )
+        if finish_log:
+            rospy.logwarn(
+                "Forced-forward interval finished; normal navigation cmd_vel "
+                "forwarding resumed."
+            )
+
+    def _on_shutdown(self):
+        try:
+            self._cmd_pub.publish(self._zero_twist())
+        except Exception:
+            pass
+
+
+def main():
+    rospy.init_node("teb_infeasible_forward_override")
+    TebInfeasibleForwardOverride()
+    rospy.spin()
+
+
+if __name__ == "__main__":
+    main()

@@ -8,12 +8,9 @@
     <!-- 路径碰撞持续 5 秒仿真时间 -->
     <param name="collision_hold_time" value="5.0"/>
 
-    <!-- 无条件直行 2 秒 @ 0.25m/s = 0.5m，能穿过门洞幻影障碍。
-         2026-08-06: 原来 1s@0.1m/s 只走 0.1m，穿不过 1.12m 净通道门洞。
-         前提：TEB map_frame 已改为 world，local_plan 与 costmap 帧一致
-         （否则 path_collision_forward_recovery.py 176-183 直接 return False）。 -->
-    <param name="forward_duration" value="2.0"/>
-    <param name="forward_speed" value="0.25"/>
+    <!-- 无条件直行 1 秒仿真时间 -->
+    <param name="forward_duration" value="1.0"/>
+    <param name="forward_speed" value="0.10"/>
 
     <!-- 只判断局部路径前方 1.5 米 -->
     <param name="check_path_distance" value="1.50"/>

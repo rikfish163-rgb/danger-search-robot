@@ -177,18 +177,6 @@ namespace unitree_legged_control
         // } 
 
         currentPos = joint.getPosition();
-        // [fix] 2\u03c0 解缠绕:将关节角度调整到 URDF 限制范围内(修复 calf 报告 +2\u03c0 导致力矩打满)
-        if (joint_urdf->limits) {
-            double lo = joint_urdf->limits->lower;
-            double hi = joint_urdf->limits->upper;
-            double rng = hi - lo;
-            if (rng > 0.0 && rng < 2.0 * M_PI) {
-                while (currentPos < lo) currentPos += 2.0 * M_PI;
-                while (currentPos > hi) currentPos -= 2.0 * M_PI;
-                if (currentPos < lo) currentPos = lo;
-                if (currentPos > hi) currentPos = hi;
-            }
-        }
         currentVel = computeVel(currentPos, (double)lastState.q, (double)lastState.dq, period.toSec());
         calcTorque = computeTorque(currentPos, currentVel, servoCmd);      
         effortLimits(calcTorque);

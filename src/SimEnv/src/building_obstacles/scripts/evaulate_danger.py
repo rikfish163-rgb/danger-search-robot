@@ -20,7 +20,8 @@ import numpy as np
 truth_file = "./results/danger_truth.json"          # 真值文件路径
 detected_file = "./results/detected_danger.json"    # 选手检测文件路径
 
-fixed_threshold = 1.0        # 固定阈值，单位：米
+fixed_threshold = 1.0        # 仅用于显式 legacy 固定阈值模式
+default_scene_ratio = 0.05   # DG-202602：场景尺度的 5%
 
 # 是否打印详细匹配信息
 verbose = False
@@ -153,13 +154,33 @@ def _build_parser():
     parser.add_argument("--detected-file", default=detected_file)
     parser.add_argument("--output-file", default="./results/evaluation_result.json")
     parser.add_argument("--threshold", type=float, default=fixed_threshold)
+    parser.add_argument(
+        "--threshold-mode",
+        choices=["scene-ratio", "fixed"],
+        default="scene-ratio",
+        help="DG-202602 defaults to 5%% of scene size; fixed is legacy diagnostics only.",
+    )
+    parser.add_argument("--scene-ratio", type=float, default=default_scene_ratio)
     parser.add_argument("--scene-size", type=float)
     parser.add_argument(
         "--scene-size-mode",
         choices=["max-dimension", "footprint-diagonal", "three-dimensional-diagonal"],
         default="max-dimension",
     )
-    parser.add_argument("--use-scene-ratio", action="store_true", help="Use 5% of scene size instead of fixed threshold.")
+    parser.add_argument(
+        "--use-scene-ratio",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--detected-coordinate-frame",
+        choices=["robot-start-relative", "world"],
+        default="robot-start-relative",
+    )
+    parser.add_argument(
+        "--team-scene-info",
+        default="./generated_building/team_scene_info.json",
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -179,19 +200,46 @@ def main(argv=None):
     # 提取检测位置
     detected_positions = load_positions_from_data(detected_data, 'detected_danger_sources')
 
+    # The official result coordinates are relative to the published spawn
+    # origin.  Local referee truth remains in world coordinates, so translate
+    # truth using only public team_scene_info.json before matching.
+    if args.detected_coordinate_frame == "robot-start-relative":
+        team_scene = load_json(args.team_scene_info)
+        start = team_scene.get("robot_start", {})
+        try:
+            origin = np.asarray(
+                [float(start[key]) for key in ("x", "y", "z")],
+                dtype=float,
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                "team_scene_info.json 缺少有效 robot_start x/y/z"
+            ) from error
+        if not np.all(np.isfinite(origin)):
+            raise ValueError("team_scene_info robot_start 必须为有限值")
+        truth_positions = truth_positions - origin
+
     # 确定阈值
-    if not args.use_scene_ratio:
+    threshold_mode = (
+        "scene-ratio" if args.use_scene_ratio else args.threshold_mode
+    )
+    scene_size = None
+    if threshold_mode == "fixed":
         threshold = args.threshold
         print(f"使用固定阈值 = {threshold:.3f} 米")
     else:
-        # 使用场景尺寸的5%
+        if not math.isfinite(args.scene_ratio) or args.scene_ratio <= 0.0:
+            raise ValueError("--scene-ratio 必须为正有限值")
         if args.scene_size is None:
             scene_size = compute_scene_size_from_truth(truth_data, args.scene_size_mode)
             print(f"未指定 scene_size，根据楼栋尺度({args.scene_size_mode})计算场景尺寸 = {scene_size:.2f} 米")
         else:
             scene_size = args.scene_size
-        threshold = scene_size * 0.05
-        print(f"使用场景尺寸 {scene_size:.2f} 米，阈值 = {threshold:.3f} 米")
+        threshold = scene_size * args.scene_ratio
+        print(
+            f"使用场景尺寸 {scene_size:.2f} 米，比例 = {args.scene_ratio:.3f}，"
+            f"阈值 = {threshold:.3f} 米"
+        )
 
     print(f"真值危险源数量: {len(truth_positions)}")
     print(f"选手检测数量: {len(detected_positions)}")
@@ -226,7 +274,11 @@ def main(argv=None):
             "missed": missed,
             "false_alarms": false_alarms,
             "exploration_time": exploration_time,
-            "threshold_used": threshold
+            "threshold_used": threshold,
+            "threshold_mode": threshold_mode,
+            "scene_ratio": args.scene_ratio if threshold_mode == "scene-ratio" else None,
+            "scene_size": scene_size,
+            "detected_coordinate_frame": args.detected_coordinate_frame,
         },
         "scores": {
             "exploration_time_score": round(time_score, 2),

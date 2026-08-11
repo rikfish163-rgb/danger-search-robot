@@ -23,14 +23,7 @@ def main():
     client = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
 
     print("等待 /move_base action server...")
-    import time as _time
-    _deadline = _time.time() + 60.0
-    _connected = False
-    while _time.time() < _deadline:
-        if client.wait_for_server(rospy.Duration(2.0)):
-            _connected = True
-            break
-    if not _connected:
+    if not client.wait_for_server(rospy.Duration(10.0)):
         print("错误：无法连接 /move_base")
         return 1
 

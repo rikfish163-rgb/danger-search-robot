@@ -675,10 +675,20 @@ def _build_door_model(door: DoorSpec) -> ET.Element:
     ET.SubElement(model, "static").text = "false"
     ET.SubElement(model, "pose").text = _format_pose(door.pose)
     panel_width = door.width / 2.0
-    left_offset = -panel_width / 2.0
-    right_offset = panel_width / 2.0
-    _append_kinematic_panel(model, "left_panel", (0.0, left_offset, 0.0, 0.0, 0.0, 0.0), (DOOR_PANEL_THICKNESS, panel_width, door.height))
-    _append_kinematic_panel(model, "right_panel", (0.0, right_offset, 0.0, 0.0, 0.0, 0.0), (DOOR_PANEL_THICKNESS, panel_width, door.height))
+    panel_poses = _door_panel_poses(door)
+    initial_state = "open" if door.initial_open else "closed"
+    _append_kinematic_panel(
+        model,
+        "left_panel",
+        panel_poses[f"left_{initial_state}"],
+        (DOOR_PANEL_THICKNESS, panel_width, door.height),
+    )
+    _append_kinematic_panel(
+        model,
+        "right_panel",
+        panel_poses[f"right_{initial_state}"],
+        (DOOR_PANEL_THICKNESS, panel_width, door.height),
+    )
     return model
 
 
@@ -730,21 +740,36 @@ def _build_elevator_model(layout: BuildingLayout, elevator_id: str) -> ET.Elemen
 def _door_config_entry(door: DoorSpec) -> dict[str, object]:
     payload = door.as_dict()
     payload["model_name"] = f"dynamic_{door.id}"
+    if door.kind == "elevator":
+        payload["motion_duration"] = ELEVATOR_DOOR_MOTION_DURATION
+    panel_poses = _door_panel_poses(door)
+    payload["panel_poses"] = {
+        key: list(pose)
+        for key, pose in panel_poses.items()
+    }
+    payload["closed_pose"] = list(door.pose)
+    return payload
+
+
+def _door_panel_poses(
+    door: DoorSpec,
+) -> dict[str, tuple[float, float, float, float, float, float]]:
     panel_offset = door.width / 4.0
-    slide_offset = door.width / 4.0 + 0.06
+    # Move each panel completely beyond the nominal opening.  The panel starts
+    # one quarter-width from the center and is itself one half-width wide, so
+    # a half-width slide (plus the panel thickness as clearance) exposes the
+    # full doorway instead of leaving both panels inside it.
+    slide_offset = door.width / 2.0 + DOOR_PANEL_THICKNESS
     recess_offset = 0.0
     if door.kind == "elevator":
         slide_offset = door.width / 2.0 + WALL_THICKNESS / 2.0 + DOOR_PANEL_THICKNESS
         recess_offset = -(WALL_THICKNESS / 2.0 + DOOR_PANEL_THICKNESS / 2.0)
-        payload["motion_duration"] = ELEVATOR_DOOR_MOTION_DURATION
-    payload["panel_poses"] = {
-        "left_closed": [0.0, -panel_offset, 0.0, 0.0, 0.0, 0.0],
-        "right_closed": [0.0, panel_offset, 0.0, 0.0, 0.0, 0.0],
-        "left_open": [recess_offset, -panel_offset - slide_offset, 0.0, 0.0, 0.0, 0.0],
-        "right_open": [recess_offset, panel_offset + slide_offset, 0.0, 0.0, 0.0, 0.0],
+    return {
+        "left_closed": (0.0, -panel_offset, 0.0, 0.0, 0.0, 0.0),
+        "right_closed": (0.0, panel_offset, 0.0, 0.0, 0.0, 0.0),
+        "left_open": (recess_offset, -panel_offset - slide_offset, 0.0, 0.0, 0.0, 0.0),
+        "right_open": (recess_offset, panel_offset + slide_offset, 0.0, 0.0, 0.0, 0.0),
     }
-    payload["closed_pose"] = list(door.pose)
-    return payload
 
 
 def _elevator_config_entry(layout: BuildingLayout, elevator_id: str) -> dict[str, object]:

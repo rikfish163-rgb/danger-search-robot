@@ -1,2 +1,5 @@
 #!/bin/bash
-exec python3 /root/catkin_ws/src/quadruped_vision/scripts/yolo_detector.py "$@"
+
+exec /home/bory/catkin_ws/.venv_vision/bin/python3 \
+  /home/bory/catkin_ws/src/quadruped_vision/scripts/yolo_detector.py \
+  "$@"

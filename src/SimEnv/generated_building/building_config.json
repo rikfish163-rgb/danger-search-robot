@@ -1,8 +1,8 @@
 {
   "building_depth": 36.0,
   "building_width": 20.0,
-  "danger_count": 5,
-  "distractor_count": 6,
+  "danger_count": 6,
+  "distractor_count": 5,
   "entrance_pose": [
     0.0,
     0.0,
@@ -20,7 +20,7 @@
   "num_floors": 3,
   "room_count": 12,
   "schema": "competition_building_config_v1",
-  "seed": 408657464,
+  "seed": 657791244,
   "target_points": {
     "elevators": {
       "0": [
@@ -181,5 +181,5 @@
       ]
     }
   },
-  "world_file": "/root/catkin_ws/src/SimEnv/generated_building/competition_scene.world"
+  "world_file": "/home/bory/catkin_ws/src/SimEnv/generated_building/competition_scene.world"
 }

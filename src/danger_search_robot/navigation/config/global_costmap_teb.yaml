@@ -3,7 +3,7 @@ global_costmap:
   robot_base_frame: body
   update_frequency: 2.0
   publish_frequency: 1.0
-  transform_tolerance: 2.0
+  transform_tolerance: 0.5
   static_map: true
   rolling_window: false
   plugins:
@@ -17,11 +17,9 @@ global_costmap:
     track_unknown_space: true
     unknown_cost_value: -1
   inflation_layer:
-    # [final6] 全局膨胀降为0.3: SLAM链位姿有小偏移时, 起点格不易落入膨胀区导致规划失败
-    # 实际避障由TEB局部规划承担
-    inflation_radius: 0.3
-    cost_scaling_factor: 3.0
+    inflation_radius: 0.30
+    cost_scaling_factor: 6.0
 inflation_layer:
   enabled: true
-  inflation_radius: 0.3
-  cost_scaling_factor: 3.0
+  inflation_radius: 0.30
+  cost_scaling_factor: 6.0

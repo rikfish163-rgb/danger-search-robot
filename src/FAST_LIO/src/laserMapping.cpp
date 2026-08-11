@@ -891,7 +891,7 @@ int main(int argc, char** argv)
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
-                ROS_WARN("No point: input=%zu imu=%zu", (size_t)(Measures.lidar?Measures.lidar->points.size():0), Measures.imu.size());
+                ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
 
@@ -928,7 +928,7 @@ int main(int argc, char** argv)
             /*** ICP and iterated Kalman filter update ***/
             if (feats_down_size < 5)
             {
-                ROS_WARN("No point: input=%zu imu=%zu", (size_t)(Measures.lidar?Measures.lidar->points.size():0), Measures.imu.size());
+                ROS_WARN("No point, skip this scan!\n");
                 continue;
             }
             

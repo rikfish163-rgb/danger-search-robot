@@ -1,6 +1,6 @@
 {
   "allowed_interfaces": {
-    "result_file": "/root/catkin_ws/src/SimEnv/results/detected_danger.json",
+    "result_file": "/home/bory/catkin_ws/src/SimEnv/results/detected_danger.json",
     "services": [
       "/set_door_state",
       "/call_elevator"

@@ -73,9 +73,7 @@ void LivoxPointsPlugin::Load(gazebo::sensors::SensorPtr _parent, sdf::ElementPtr
     char **argv = nullptr;
     auto curr_scan_topic = sdf->Get<std::string>("ros_topic");
     ROS_INFO_STREAM("ros topic name:" << curr_scan_topic);
-    if (!ros::isInitialized()) {
-        ros::init(argc, argv, "livox_points_plugin");
-    }
+    ros::init(argc, argv, curr_scan_topic);
     rosNode.reset(new ros::NodeHandle);
     rosPointPub = rosNode->advertise<sensor_msgs::PointCloud>(curr_scan_topic, 5);
 

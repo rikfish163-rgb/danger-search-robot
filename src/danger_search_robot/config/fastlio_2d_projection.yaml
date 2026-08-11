@@ -62,10 +62,10 @@ reject_zero_stamp: true
 floor_persistence_enabled: true
 
 # elevator_floor_transition.py 维护的权威楼层文件
-floor_state_file: /root/catkin_ws/results/floor_state.json
+floor_state_file: /home/bory/catkin_ws/results/floor_state.json
 
 # 每层完整内部状态保存位置
-floor_maps_root: /root/catkin_ws/results/floors
+floor_maps_root: /home/bory/catkin_ws/results/floors
 
 initial_floor: 0
 floor_count: 3

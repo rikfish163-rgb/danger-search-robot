@@ -179,10 +179,6 @@ void Preprocess::avia_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg)
               && (pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y + pl_full[i].z * pl_full[i].z > (blind * blind)))
           {
             pl_surf.push_back(pl_full[i]);
-          if (pl_surf.size() == 1) {
-            FILE *df = fopen("/tmp/preprocess_count.txt", "w");
-            if (df) { fprintf(df, "plsize=%u line=%d tag=%d\n", plsize, msg->points[i].line, msg->points[i].tag); fclose(df); }
-          }
           }
         }
       }

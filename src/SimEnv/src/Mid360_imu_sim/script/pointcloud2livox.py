@@ -26,14 +26,12 @@ def pointcloud2_to_custommsg(pointcloud2):
 
     # Parse PointCloud2 data
     fmt = _get_struct_fmt(pointcloud2)
-    npts = max(1, len(pointcloud2.data) // pointcloud2.point_step)
-    # [fix] 给每个点设递增 offset_time(扫描期 100ms),FAST-LIO 需点时间斜坡做去畸变
-    for i, b in enumerate(range(0, len(pointcloud2.data), pointcloud2.point_step)):
-        point_data = pointcloud2.data[b:b+pointcloud2.point_step]
+    for i in range(0, len(pointcloud2.data), pointcloud2.point_step):
+        point_data = pointcloud2.data[i:i+pointcloud2.point_step]
         x, y, z = struct.unpack(fmt, point_data)
 
         custom_point = CustomPoint()
-        custom_point.offset_time = int(i * 1e8 / npts)
+        custom_point.offset_time = rospy.Time.now().to_nsec() - custom_msg.timebase
         custom_point.x = x
         custom_point.y = y
         custom_point.z = z

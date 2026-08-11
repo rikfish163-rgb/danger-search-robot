@@ -146,7 +146,7 @@ class GraphNBVStageB31ManualGate:
 
         # Direction-projection gate.
         self.gate_backtrack_margin = float(
-            rospy.get_param("~gate_backtrack_margin", 0.0)
+            rospy.get_param("~gate_backtrack_margin", 0.30)
         )
         self.forward_finish_stable_cycles = int(
             rospy.get_param("~forward_finish_stable_cycles", 8)
@@ -272,11 +272,8 @@ class GraphNBVStageB31ManualGate:
         self.goal_timeout = float(
             rospy.get_param("~goal_timeout", 120.0)
         )
-        self.goal_reached_radius = float(
-            rospy.get_param("~goal_reached_radius", 0.60)
-        )
         self.no_progress_timeout = float(
-            rospy.get_param("~no_progress_timeout", 15.0)
+            rospy.get_param("~no_progress_timeout", 35.0)
         )
         self.progress_epsilon = float(
             rospy.get_param("~progress_epsilon", 0.20)
@@ -285,7 +282,7 @@ class GraphNBVStageB31ManualGate:
             rospy.get_param("~blacklist_radius", 1.00)
         )
         self.global_empty_cycles_to_finish = int(
-            rospy.get_param("~global_empty_cycles_to_finish", 30)
+            rospy.get_param("~global_empty_cycles_to_finish", 10)
         )
         self.plan_period = float(
             rospy.get_param("~plan_period", 1.50)
@@ -505,11 +502,9 @@ class GraphNBVStageB31ManualGate:
         )
 
     def gate_allows(self, x: float, y: float) -> bool:
-        # Hard forward gate: once the gate origin/direction exists,
-        # points behind the gate plane are never allowed.
-        if self.gate_origin is None or self.gate_forward is None:
+        if not self.gate_locked:
             return True
-        return self.gate_progress(x, y) >= 0.0
+        return self.gate_progress(x, y) >= -self.gate_backtrack_margin
 
     def behind_gate_penalty(self, x: float, y: float) -> float:
         if (
@@ -1782,35 +1777,6 @@ class GraphNBVStageB31ManualGate:
                 goal_xy[1] - robot_pose[1],
             )
 
-            # Exploration viewpoints do not require centimeter-level final
-            # alignment.  Accept the goal once the robot enters the configured
-            # radius, cancel TEB's remaining fine adjustment, and continue NBV.
-            if distance <= self.goal_reached_radius:
-                completed_kind = self.current_goal_kind
-                rospy.loginfo(
-                    "[graph_nbv] %s goal accepted near target "
-                    "distance=%.3f radius=%.3f",
-                    completed_kind,
-                    distance,
-                    self.goal_reached_radius,
-                )
-                self.client.cancel_goal()
-                self.clear_current_goal()
-                self.global_empty_cycles = 0
-
-                if completed_kind == "GLOBAL":
-                    self.mode_pub.publish(
-                        String(data="LOCAL_NBV")
-                    )
-                    self.publish_status(
-                        "GLOBAL_RELOCATION_REACHED"
-                    )
-                else:
-                    self.publish_status(
-                        "LOCAL_VIEWPOINT_REACHED"
-                    )
-                return
-
             if (
                 self.last_goal_distance - distance
                 >= self.progress_epsilon
@@ -2246,21 +2212,19 @@ class GraphNBVStageB31ManualGate:
                     self.forward_empty_cycles
                     >= self.forward_finish_stable_cycles
                 ):
-                    # Hard gate: never unlock or explore behind the gate.
-                    self.finished = True
-                    self.finished_pub.publish(Bool(data=True))
+                    self.gate_locked = False
+                    self.forward_empty_cycles = 0
+                    self.global_empty_cycles = 0
                     self.gate_state_pub.publish(
-                        String(data="HARD_FORWARD_GATE_FINISHED")
+                        String(data="BACKTRACK_UNLOCKED")
                     )
                     self.mode_pub.publish(
-                        String(data="FINISHED_FORWARD_REGION")
+                        String(data="BACKTRACK_UNLOCKED")
                     )
-                    self.publish_status(
-                        "FINISHED_FORWARD_REGION"
-                    )
+                    self.publish_status("BACKTRACK_UNLOCKED")
                     rospy.loginfo(
-                        "[graph_nbv] hard forward region exhausted; "
-                        "exploration finished without unlocking gate"
+                        "[graph_nbv] forward region exhausted; "
+                        "gate unlocked"
                     )
 
                 self.publish_markers(

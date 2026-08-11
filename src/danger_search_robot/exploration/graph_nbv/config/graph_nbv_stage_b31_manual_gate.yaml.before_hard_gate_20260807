@@ -43,7 +43,7 @@ initial_obstacle_stop_distance: 1.20
 initial_obstacle_check_width: 0.70
 
 # Direction-projection gate.
-gate_backtrack_margin: 0.00
+gate_backtrack_margin: 0.30
 forward_finish_stable_cycles: 8
 behind_gate_penalty_after_unlock: 10.0
 

@@ -9,7 +9,6 @@
 
 import tf
 import rospy
-import math
 import struct
 import numpy as np
 from threading import Lock
@@ -60,16 +59,12 @@ def pointcloud2_to_custommsg(pointcloud2):
 
     # Parse PointCloud2 data
     fmt = _get_struct_fmt(pointcloud2)
-    _npts = max(1, pointcloud2.width)
-    _idx = 0
     for i in range(0, len(pointcloud2.data), pointcloud2.point_step):
         point_data = pointcloud2.data[i:i+pointcloud2.point_step]
         x, y, z = struct.unpack(fmt, point_data)
 
         custom_point = CustomPoint()
-        # [fix] 点时间斜坡(10Hz lidar, 100ms/帧),FAST-LIO 去畸变需要非 0 的 offset_time
-        custom_point.offset_time = int(_idx * 100000000 / _npts)
-        _idx += 1
+        custom_point.offset_time = rospy.Time.now().to_nsec() - custom_msg.timebase
         custom_point.x = x
         custom_point.y = y
         custom_point.z = z

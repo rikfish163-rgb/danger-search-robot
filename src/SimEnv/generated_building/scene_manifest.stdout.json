@@ -1,5 +1,5 @@
 {
-  "building_config": "/root/catkin_ws/src/SimEnv/generated_building/building_config.json",
+  "building_config": "/home/bory/catkin_ws/src/SimEnv/generated_building/building_config.json",
   "competition_interfaces": {
     "allowed_team_services": [
       "/set_door_state",
@@ -19,14 +19,14 @@
       "/real_sense/depth/camera_info",
       "/real_sense/depth/points"
     ],
-    "team_detection_file": "/root/catkin_ws/src/SimEnv/results/detected_danger.json",
-    "team_scene_info_file": "/root/catkin_ws/src/SimEnv/generated_building/team_scene_info.json",
+    "team_detection_file": "/home/bory/catkin_ws/src/SimEnv/results/detected_danger.json",
+    "team_scene_info_file": "/home/bory/catkin_ws/src/SimEnv/generated_building/team_scene_info.json",
     "velocity_command_topic": "/cmd_vel"
   },
-  "danger_count": 5,
-  "distractor_count": 6,
-  "door_config": "/root/catkin_ws/src/SimEnv/generated_building/door_config.yaml",
-  "elevator_config": "/root/catkin_ws/src/SimEnv/generated_building/elevator_config.yaml",
+  "danger_count": 6,
+  "distractor_count": 5,
+  "door_config": "/home/bory/catkin_ws/src/SimEnv/generated_building/door_config.yaml",
+  "elevator_config": "/home/bory/catkin_ws/src/SimEnv/generated_building/elevator_config.yaml",
   "gazebo_physics": {
     "contact_max_correcting_vel": 5.0,
     "max_step_size": 0.002,
@@ -34,10 +34,10 @@
     "real_time_factor": 1.0,
     "real_time_update_rate": 500
   },
-  "layout_metadata": "/root/catkin_ws/src/SimEnv/generated_building/layout_metadata.json",
-  "output_truth_file": "/root/catkin_ws/src/SimEnv/generated_building/danger_truth.json",
+  "layout_metadata": "/home/bory/catkin_ws/src/SimEnv/generated_building/layout_metadata.json",
+  "output_truth_file": "/home/bory/catkin_ws/src/SimEnv/generated_building/danger_truth.json",
   "referee_only": {
-    "generated_truth_copy": "/root/catkin_ws/src/SimEnv/generated_building/danger_truth.json",
+    "generated_truth_copy": "/home/bory/catkin_ws/src/SimEnv/generated_building/danger_truth.json",
     "odometry_topic": "/Odometry_gazebo",
     "referee_only_topics": [
       "/Odometry_gazebo",
@@ -48,7 +48,7 @@
       "/ground_truth/RL_foot",
       "/ground_truth/RR_foot"
     ],
-    "truth_file": "/root/catkin_ws/src/SimEnv/results/danger_truth.json"
+    "truth_file": "/home/bory/catkin_ws/src/SimEnv/results/danger_truth.json"
   },
   "robot_start": {
     "x": 0.0,
@@ -57,10 +57,10 @@
     "z": 0.6
   },
   "schema": "competition_scene_manifest_v1",
-  "seed": 408657464,
+  "seed": 657791244,
   "source_count": 11,
-  "team_scene_info": "/root/catkin_ws/src/SimEnv/generated_building/team_scene_info.json",
-  "truth_file": "/root/catkin_ws/src/SimEnv/results/danger_truth.json",
-  "validation_report": "/root/catkin_ws/src/SimEnv/generated_building/generation_checks.json",
-  "world_file": "/root/catkin_ws/src/SimEnv/generated_building/competition_scene.world"
+  "team_scene_info": "/home/bory/catkin_ws/src/SimEnv/generated_building/team_scene_info.json",
+  "truth_file": "/home/bory/catkin_ws/src/SimEnv/results/danger_truth.json",
+  "validation_report": "/home/bory/catkin_ws/src/SimEnv/generated_building/generation_checks.json",
+  "world_file": "/home/bory/catkin_ws/src/SimEnv/generated_building/competition_scene.world"
 }

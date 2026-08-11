@@ -43,7 +43,7 @@ initial_obstacle_stop_distance: 1.20
 initial_obstacle_check_width: 0.70
 
 # Direction-projection gate.
-gate_backtrack_margin: 0.00
+gate_backtrack_margin: 0.30
 forward_finish_stable_cycles: 8
 behind_gate_penalty_after_unlock: 10.0
 
@@ -90,9 +90,8 @@ coverage_radius: 0.90
 goal_min_distance: 0.70
 goal_max_distance: 30.0
 goal_timeout: 120.0
-goal_reached_radius: 0.60
-no_progress_timeout: 15.0
+no_progress_timeout: 35.0
 progress_epsilon: 0.20
 blacklist_radius: 1.00
-global_empty_cycles_to_finish: 30
+global_empty_cycles_to_finish: 10
 plan_period: 1.50
