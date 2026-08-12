@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.14)
 project(unitree_guide)
 set(TORCH_CUDA_ARCH_LIST "8.9")
-# 添加 torch 依赖，默认使用 /home/ros/Guoyulun/Download/libtorch（如不同，请提供正确路径）
-# 确保 CMake 可以加载 libtorch 附带的 cmake 模块（例如 CheckLinkerFlag）
-list(APPEND CMAKE_MODULE_PATH "/home/bory/.local/lib/python3.8/site-packages/torch/share/cmake/Caffe2/public")
-list(APPEND CMAKE_MODULE_PATH "/home/bory/.local/lib/python3.8/site-packages/torch/share/cmake")
-set(Torch_DIR "/home/bory/libtorch/share/cmake/Torch")
+# LibTorch is mounted into the ROS1 container. Keep the path configurable so
+# the package does not depend on the developer's host home directory.
+set(LIBTORCH_ROOT "/root/ros1_isolated/deps/libtorch" CACHE PATH "LibTorch root")
+list(APPEND CMAKE_MODULE_PATH
+    "${LIBTORCH_ROOT}/share/cmake/Caffe2/public"
+    "${LIBTORCH_ROOT}/share/cmake")
+set(Torch_DIR "${LIBTORCH_ROOT}/share/cmake/Torch")
 find_package(Torch REQUIRED)
 
 set(ROBOT_TYPE A1)         # The type of robot, support Go1 and A1 currently

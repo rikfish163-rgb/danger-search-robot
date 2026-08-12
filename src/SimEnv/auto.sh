@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$WORKSPACE_DIR"
 
 as_ros_bool() {
@@ -127,11 +127,11 @@ fi
 source "$WORKSPACE_DIR/devel/setup.bash"
 export ROS_PACKAGE_PATH="$WORKSPACE_DIR/src:${ROS_PACKAGE_PATH:-}"
 export CMAKE_PREFIX_PATH="$WORKSPACE_DIR/devel:${CMAKE_PREFIX_PATH:-}"
-export PYTHONPATH="$WORKSPACE_DIR/src/building_generator_classic:$WORKSPACE_DIR/src/building_generator_core:${PYTHONPATH:-}"
+export PYTHONPATH="$WORKSPACE_DIR/src/SimEnv/src/building_generator_classic:$WORKSPACE_DIR/src/SimEnv/src/building_generator_core:${PYTHONPATH:-}"
 
-GENERATOR_SCRIPT="$WORKSPACE_DIR/src/building_obstacles/scripts/generate_competition_scene.py"
-BUILDING_CONTROL_SCRIPT="$WORKSPACE_DIR/src/building_generator_classic/scripts/building_generator_classic_control"
-UNITREE_GAZEBO_MODELS="$WORKSPACE_DIR/src/unitree_guide/unitree_ros/unitree_gazebo/models"
+GENERATOR_SCRIPT="$WORKSPACE_DIR/src/SimEnv/src/building_obstacles/scripts/generate_competition_scene.py"
+BUILDING_CONTROL_SCRIPT="$WORKSPACE_DIR/src/SimEnv/src/building_generator_classic/scripts/building_generator_classic_control"
+UNITREE_GAZEBO_MODELS="$WORKSPACE_DIR/src/SimEnv/src/unitree_guide/unitree_ros/unitree_gazebo/models"
 SCENE_OUTPUT_DIR="$WORKSPACE_DIR/generated_building"
 RESULTS_DIR="$WORKSPACE_DIR/results"
 mkdir -p "$SCENE_OUTPUT_DIR" "$RESULTS_DIR" "$WORKSPACE_DIR/logs"
@@ -264,17 +264,24 @@ if [ "$START_CONTROLLER" = "1" ]; then
 
     sleep 2
 
-    LD_LIBRARY_PATH="$HOME/libtorch/lib:${LD_LIBRARY_PATH:-}" \
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" || true
+    LIBTORCH_ROOT="${LIBTORCH_ROOT:-/root/ros1_isolated/deps/libtorch}"
+    (
+      cd "$WORKSPACE_DIR/src/SimEnv"
+      LD_LIBRARY_PATH="$LIBTORCH_ROOT/lib:${LD_LIBRARY_PATH:-}" \
+      "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+    ) || true
     echo "junior_ctrl exited; keeping Gazebo running for inspection. Press Ctrl-C to stop this script."
     wait "$LAUNCH_PID"
     exit 0
   else
     echo "Starting junior_ctrl controller in the background. Keyboard state switching may not be available."
     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
-    LD_LIBRARY_PATH="$HOME/libtorch/lib:${LD_LIBRARY_PATH:-}" \
-    "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl" \
-      > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
+    LIBTORCH_ROOT="${LIBTORCH_ROOT:-/root/ros1_isolated/deps/libtorch}"
+    (
+      cd "$WORKSPACE_DIR/src/SimEnv"
+      LD_LIBRARY_PATH="$LIBTORCH_ROOT/lib:${LD_LIBRARY_PATH:-}" \
+      "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+    ) > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
     schedule_unpause_physics
   fi

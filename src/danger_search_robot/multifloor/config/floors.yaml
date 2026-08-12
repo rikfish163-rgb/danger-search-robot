@@ -21,4 +21,4 @@ elevator:
     1: elevator_floor_1
     2: elevator_floor_2
 
-results_root: /home/bory/catkin_ws/results/floors
+results_root: /root/catkin_ws/results/floors

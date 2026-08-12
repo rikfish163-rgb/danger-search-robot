@@ -1,5 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-exec /home/bory/catkin_ws/.venv_vision/bin/python3 \
-  /home/bory/catkin_ws/src/quadruped_vision/scripts/yolo_detector.py \
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+exec "$WORKSPACE_DIR/.venv_vision/bin/python3" \
+  "$SCRIPT_DIR/yolo_detector.py" \
   "$@"

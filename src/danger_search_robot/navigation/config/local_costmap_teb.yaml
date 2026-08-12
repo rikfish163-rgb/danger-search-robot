@@ -20,9 +20,9 @@ local_costmap:
     track_unknown_space: false
     unknown_cost_value: -1
   inflation_layer:
-    inflation_radius: 0.30
-    cost_scaling_factor: 6.0
+    inflation_radius: 0.10
+    cost_scaling_factor: 12.0
 inflation_layer:
   enabled: true
-  inflation_radius: 0.30
-  cost_scaling_factor: 6.0
+  inflation_radius: 0.10
+  cost_scaling_factor: 12.0

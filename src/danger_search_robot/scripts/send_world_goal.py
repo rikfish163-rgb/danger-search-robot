@@ -23,6 +23,9 @@ def main():
     client = actionlib.SimpleActionClient("/move_base", MoveBaseAction)
 
     print("等待 /move_base action server...")
+    # Give rospy/TCPROS time to establish the action channels before the
+    # simulated-clock timeout starts counting.
+    rospy.sleep(2.0)
     if not client.wait_for_server(rospy.Duration(10.0)):
         print("错误：无法连接 /move_base")
         return 1

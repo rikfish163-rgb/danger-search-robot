@@ -1,6 +1,6 @@
 TebLocalPlannerROS:
   odom_topic: /Odometry
-  map_frame: map_level
+  map_frame: world
 
   teb_autosize: true
   dt_ref: 0.30

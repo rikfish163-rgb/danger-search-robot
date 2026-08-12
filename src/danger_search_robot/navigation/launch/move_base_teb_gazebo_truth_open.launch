@@ -1,0 +1,33 @@
+<launch>
+  <!-- Deterministic Gazebo truth validation profile for the saved floor map. -->
+  <node pkg="move_base" type="move_base" name="move_base" output="screen" clear_params="true">
+    <remap from="cmd_vel" to="/cmd_vel"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common_teb.yaml" command="load" ns="global_costmap"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common_teb.yaml" command="load" ns="local_costmap"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/global_costmap_teb.yaml" command="load"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/local_costmap_teb.yaml" command="load"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/move_base.yaml" command="load"/>
+    <rosparam file="$(find danger_search_robot)/navigation/config/teb_local_planner.yaml" command="load"/>
+
+    <param name="global_costmap/global_frame" value="world"/>
+    <param name="global_costmap/robot_base_frame" value="base"/>
+    <param name="global_costmap/static_layer/track_unknown_space" value="false"/>
+    <param name="global_costmap/static_layer/unknown_cost_value" value="0"/>
+    <param name="global_costmap/inflation_layer/inflation_radius" value="0.0"/>
+    <param name="global_costmap/inflation_radius" value="0.0"/>
+    <param name="local_costmap/global_frame" value="world"/>
+    <param name="local_costmap/robot_base_frame" value="base"/>
+    <param name="local_costmap/static_layer/track_unknown_space" value="false"/>
+    <param name="local_costmap/static_layer/unknown_cost_value" value="0"/>
+    <param name="local_costmap/inflation_layer/inflation_radius" value="0.0"/>
+    <param name="local_costmap/inflation_radius" value="0.0"/>
+    <param name="TebLocalPlannerROS/odom_topic" value="/Odometry_gazebo"/>
+    <param name="TebLocalPlannerROS/map_frame" value="world"/>
+    <param name="base_global_planner" value="global_planner/GlobalPlanner"/>
+    <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
+    <param name="controller_frequency" value="8.0"/>
+    <param name="planner_patience" value="8.0"/>
+    <param name="controller_patience" value="12.0"/>
+    <param name="oscillation_timeout" value="15.0"/>
+  </node>
+</launch>

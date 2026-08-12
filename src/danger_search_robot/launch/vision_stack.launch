@@ -44,7 +44,7 @@
   <!-- 1. SLAM坐标树中的RealSense光学坐标系                   -->
   <!-- ===================================================== -->
 
-  <node pkg="tf"
+  <node pkg="tf2_ros"
         type="static_transform_publisher"
         name="slam_realsense_optical_tf"
         output="screen"
@@ -57,8 +57,7 @@
          -0.653227598373
           0.653227598374
           body
-          slam_real_sense_optical_frame
-          100"/>
+          slam_real_sense_optical_frame"/>
 
 
   <!-- ===================================================== -->

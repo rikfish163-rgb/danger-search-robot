@@ -1,22 +1,65 @@
-# ROS build files
+# Catkin build outputs
 build/
 devel/
-logs/
+install/
+log/
+.catkin_tools/
 
-# ROS logs
+# ROS runtime files
+*.bag
+*.bag.active
 *.log
+*.pid
 
-# Python cache
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
 
-# IDE
+# C/C++
+*.o
+*.so
+*.a
+
+# Editors
 .vscode/
 .idea/
-
-# temporary files
 *.swp
-*.tmp
+*.swo
+*~
 
-# system files
+# Temporary and backup files
+*.tmp
+*.bak
+*.backup
+*.before_*
+*before_polygon*
+*before_restore*
+*before_force_forward*
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Local backup snapshots
+*.bak
+*.bak_*
+*.backup
+*.backup_*
+*.before_*
+*.orig
+*.rej
+
+# Project backup directories
+backups/
+backup_*/
+backup-*/
+
+# Generated TF graph
+frames.gv
+frames.pdf
+
+# Backup Python implementations
+*_backup.py

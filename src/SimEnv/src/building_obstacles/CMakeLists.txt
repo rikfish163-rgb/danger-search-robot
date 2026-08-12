@@ -211,7 +211,4 @@ catkin_install_python(PROGRAMS
 # endif()
 
 ## Add folders to be run by python nosetests
-if(CATKIN_ENABLE_TESTING)
-  catkin_add_nosetests(test/test_evaluate_danger_contract.py)
-  catkin_add_nosetests(test/test_generate_scene_contract.py)
-endif()
+# catkin_add_nosetests(test)

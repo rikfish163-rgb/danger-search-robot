@@ -88,14 +88,17 @@ class Reanchor:
             raise ValueError('不支持的floor_state格式')
         if anchor.get('schema') != 'floor_transition_anchor_v2':
             raise ValueError('不支持的anchor格式')
-        if anchor.get('status') != 'ELEVATOR_ARRIVED':
-            raise ValueError('anchor尚未提交，当前状态=%r' % anchor.get('status'))
+        status = anchor.get('status')
+        if status not in ('ELEVATOR_ARRIVED', 'REANCHORED'):
+            raise ValueError('anchor尚未提交，当前状态=%r' % status)
         if state.get('last_transition_id') != anchor.get('transition_id'):
             raise ValueError('floor_state与anchor的transition_id不一致')
         self.current_floor = int(state['current_floor'])
         if self.current_floor != int(anchor['target_floor']):
             raise ValueError('current_floor与anchor target_floor不一致')
-        rospy.loginfo('读取已提交跨层：%d -> %d，id=%s', int(anchor['source_floor']), int(anchor['target_floor']), anchor['transition_id'])
+        rospy.loginfo('读取已提交跨层：%d -> %d，id=%s，状态=%s',
+                      int(anchor['source_floor']), int(anchor['target_floor']),
+                      anchor['transition_id'], status)
         return anchor
 
     def collect_map_body(self):
@@ -127,6 +130,16 @@ class Reanchor:
 
     def calibrate(self):
         anchor = self.load_committed()
+        if anchor.get('status') == 'REANCHORED':
+            stored = anchor.get('world_map_level_reanchored')
+            if not stored:
+                raise RuntimeError('锚点已REANCHORED但缺少world_map_level_reanchored')
+            self.current_floor = int(anchor['target_floor'])
+            self.world_map = pose_matrix(stored)
+            self.floor_pub.publish(Int32(data=self.current_floor))
+            self.status('REANCHORED_FLOOR_%d' % self.current_floor)
+            rospy.loginfo('复用已提交的world->map_level锚点，不重复改写锚点文件')
+            return
         world_body = pose_matrix(anchor['world_body_after_expected'])
         map_body = self.collect_map_body()
         self.world_map = world_body @ np.linalg.inv(map_body)
