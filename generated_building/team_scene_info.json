@@ -1,0 +1,88 @@
+{
+  "allowed_interfaces": {
+    "result_file": "/root/catkin_ws/results/detected_danger.json",
+    "services": [
+      "/set_door_state",
+      "/call_elevator"
+    ],
+    "topics": [
+      "/clock",
+      "/cmd_vel",
+      "/scan",
+      "/livox/Pointcloud2",
+      "/livox/lidar2",
+      "/trunk_imu",
+      "/livox/imu",
+      "/real_sense/rgb/image_raw",
+      "/real_sense/rgb/camera_info",
+      "/real_sense/depth/image_raw",
+      "/real_sense/depth/camera_info",
+      "/real_sense/depth/points"
+    ]
+  },
+  "coordinate_frame": "world",
+  "public_scene": {
+    "door_ids": [
+      {
+        "floor_index": 0,
+        "id": "main_entrance",
+        "initial_open": true,
+        "kind": "main_entrance"
+      },
+      {
+        "floor_index": 0,
+        "id": "elevator_floor_0",
+        "initial_open": true,
+        "kind": "elevator"
+      },
+      {
+        "floor_index": 1,
+        "id": "elevator_floor_1",
+        "initial_open": false,
+        "kind": "elevator"
+      },
+      {
+        "floor_index": 2,
+        "id": "elevator_floor_2",
+        "initial_open": false,
+        "kind": "elevator"
+      }
+    ],
+    "elevators": [
+      {
+        "current_floor": 0,
+        "id": "elevator_main",
+        "served_floors": [
+          0,
+          1,
+          2
+        ]
+      }
+    ]
+  },
+  "referee_only": {
+    "forbidden_files": [
+      "generated_building/layout_metadata.json",
+      "generated_building/building_config.json",
+      "generated_building/scene_manifest.json",
+      "generated_building/danger_truth.json",
+      "results/danger_truth.json"
+    ],
+    "forbidden_topics": [
+      "/Odometry_gazebo",
+      "/ground_truth/base_w",
+      "/ground_truth/base_trunk",
+      "/ground_truth/FL_foot",
+      "/ground_truth/FR_foot",
+      "/ground_truth/RL_foot",
+      "/ground_truth/RR_foot"
+    ]
+  },
+  "robot_start": {
+    "x": 0.0,
+    "y": -3.2,
+    "yaw": 1.5708,
+    "z": 0.6
+  },
+  "schema": "team_scene_info_v1"
+}

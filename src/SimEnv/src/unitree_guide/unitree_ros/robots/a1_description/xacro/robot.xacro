@@ -7,6 +7,9 @@
     <xacro:arg name="ENABLE_LIVOX" default="$(arg ENABLE_SENSOR_DATA)"/>
     <xacro:arg name="ENABLE_LIVOX_IMU" default="$(arg ENABLE_LIVOX)"/>
     <xacro:arg name="ENABLE_REALSENSE" default="$(arg ENABLE_SENSOR_DATA)"/>
+    <!-- Gazebo 原生 RGB-D 传感器通过 sensor bridge 发布到 ROS；默认不加载
+         与当前 Gazebo/Noetic 组合不兼容的 libgazebo_ros_openni_kinect。 -->
+    <xacro:arg name="ENABLE_REALSENSE_ROS_PLUGIN" default="false"/>
     <xacro:arg name="ENABLE_FRONT_CAMERA" default="false"/>
     <xacro:arg name="ENABLE_GROUND_TRUTH" default="true"/>
     <xacro:arg name="ENABLE_FOOT_CONTACT_SENSOR" default="false"/>

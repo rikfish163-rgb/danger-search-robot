@@ -1,10 +1,8 @@
 <launch>
 
-    <node pkg="tf2_ros"
-          type="static_transform_publisher"
+    <node pkg="danger_search_robot"
+          type="static_level_tf.py"
           name="fastlio_level_tf"
-          args="0 0 0
-                0 0.382683432 0 0.923879533
-                map_level camera_init"/>
+          output="screen"/>
 
 </launch>

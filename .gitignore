@@ -23,3 +23,12 @@ wrc-slam.zip
 *.deb
 # 运行时结果
 results
+
+# 本地运行痕迹与临时调试文件
+/logs/
+/tmp/
+/frames.*
+/simenv_*
+build_log_container*.txt
+*.pid
+*.tar.gz
