@@ -29,6 +29,7 @@ UserCommand joyCommandFromButtons(const std::vector<int>& buttons){
     if(buttonAt(buttons, 1)) return UserCommand::L2_A;      // fixed stand
     if(buttonAt(buttons, 2)) return UserCommand::RL_KEYBOARD; // RL with keyboard axes
     if(buttonAt(buttons, 3)) return UserCommand::RL;          // RL with /cmd_vel
+    if(buttonAt(buttons, 4)) return UserCommand::L2_Y;        // move_base-backed trotting with /cmd_vel
     if(buttonAt(buttons, 6)) return UserCommand::L2_X;      // free stand
     if(buttonAt(buttons, 7)) return UserCommand::L1_X;      // balance test
     if(buttonAt(buttons, 8)) return UserCommand::L1_A;      // swing test

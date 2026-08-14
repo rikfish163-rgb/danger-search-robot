@@ -269,6 +269,12 @@ class YoloDetectorNode:
             "conf": self.conf_threshold,
             "iou": self.iou_threshold,
             "imgsz": self.image_size,
+            # Ultralytics 8.4.80 can emit numpy.float64 padding for the
+            # 640x480 Gazebo stream when rectangular inference is enabled;
+            # OpenCV 4.8 rejects those values as border sizes.  Square
+            # preprocessing keeps the pixel mapping valid and avoids that
+            # runtime-only failure.
+            "rect": False,
             "classes": [self.target_class_id],
             "verbose": False,
         }

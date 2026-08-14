@@ -43,14 +43,14 @@ initial_obstacle_stop_distance: 1.20
 initial_obstacle_check_width: 0.70
 
 # Direction-projection gate.
-gate_backtrack_margin: 0.00
+gate_backtrack_margin: 0.50
 forward_finish_stable_cycles: 8
 behind_gate_penalty_after_unlock: 10.0
 
 # Local graph.
 local_sampling_radius: 8.0
-candidate_spacing: 0.80
-min_candidate_clearance: 0.51
+candidate_spacing: 0.60
+min_candidate_clearance: 0.30
 edge_max_length: 2.20
 edge_collision_step: 0.10
 max_local_nodes: 550
@@ -59,10 +59,10 @@ max_local_nodes: 550
 information_radius: 3.50
 visibility_ray_count: 180
 visibility_ray_step: 0.10
-visibility_wall_dilation: 0.12
+visibility_wall_dilation: 0.05
 visibility_unknown_depth: 1.20
-min_visible_unknown_gain: 0.15
-min_visible_frontier_cells: 2
+min_visible_unknown_gain: 0.05
+min_visible_frontier_cells: 1
 
 # Local utility.
 weight_unknown_gain: 2.20
@@ -70,14 +70,14 @@ weight_frontier_gain: 0.15
 weight_clearance: 1.20
 weight_path_cost: 0.42
 weight_revisit: 2.50
-preferred_clearance: 0.80
+preferred_clearance: 0.55
 weight_wall_proximity: 5.0
 
 # Whole-map relocation.
-global_frontier_min_cells: 4
+global_frontier_min_cells: 1
 global_frontier_max_components: 20
-global_approach_min_distance: 0.45
-global_approach_max_distance: 1.60
+global_approach_min_distance: 0.30
+global_approach_max_distance: 4.00
 global_candidates_per_component: 3
 global_max_plan_checks: 18
 global_plan_tolerance: 0.30

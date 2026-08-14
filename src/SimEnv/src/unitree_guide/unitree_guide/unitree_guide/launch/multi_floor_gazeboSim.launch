@@ -14,6 +14,7 @@
     <arg name="enable_livox" default="$(arg enable_sensor_data)"/>
     <arg name="enable_livox_imu" default="$(arg enable_livox)"/>
     <arg name="enable_realsense" default="$(arg enable_sensor_data)"/>
+    <arg name="enable_realsense_ros_plugin" default="false"/>
     <arg name="enable_front_camera" default="false"/>
     <arg name="enable_referee_odom" default="true"/>
     <arg name="enable_ground_truth" default="true"/>
@@ -41,12 +42,13 @@
     </include>
 
     <param name="robot_description"
-           command="$(find xacro)/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
+           command="$(find xacro)/../../bin/xacro --inorder '$(arg dollar)$(arg robot_path)/xacro/robot.xacro'
            DEBUG:=$(arg user_debug)
            ENABLE_SENSOR_DATA:=$(arg enable_sensor_data)
            ENABLE_LIVOX:=$(arg enable_livox)
            ENABLE_LIVOX_IMU:=$(arg enable_livox_imu)
            ENABLE_REALSENSE:=$(arg enable_realsense)
+           ENABLE_REALSENSE_ROS_PLUGIN:=$(arg enable_realsense_ros_plugin)
            ENABLE_FRONT_CAMERA:=$(arg enable_front_camera)
            ENABLE_GROUND_TRUTH:=$(arg enable_ground_truth)
            ENABLE_FOOT_CONTACT_SENSOR:=$(arg enable_foot_contact_sensor)

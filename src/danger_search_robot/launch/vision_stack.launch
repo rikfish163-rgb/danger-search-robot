@@ -112,7 +112,7 @@
          value="$(arg target_frame)"/>
 
     <arg name="tf_source_frame_override"
-         value="slam_real_sense_optical_frame"/>
+         value="real_sense_optical_frame"/>
 
     <arg name="detection_topic"
          value="$(arg detection_topic)"/>

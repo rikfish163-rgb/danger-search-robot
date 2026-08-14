@@ -129,27 +129,41 @@ PipelineResult PointCloudROI::validateCloudMetadata(
     return result;
   }
 
-  // 只有有组织点云才能通过像素索引直接提取ROI。
+  // Gazebo depth_camera 会发布保持像素顺序的扁平点云
+  // (height=1, width=image_width*image_height)，也可以按像素索引
+  // 提取ROI；普通有组织点云仍要求 height>1。
+  const std::uint64_t expected_point_count =
+      static_cast<std::uint64_t>(detection_frame.image_width) *
+      static_cast<std::uint64_t>(detection_frame.image_height);
+
+  const bool is_flattened_pixel_cloud =
+      cloud_message.height == 1U &&
+      static_cast<std::uint64_t>(cloud_message.width) ==
+          expected_point_count;
+
   if (cloud_message.width == 0U ||
-      cloud_message.height <= 1U)
+      (cloud_message.height <= 1U &&
+       !is_flattened_pixel_cloud))
   {
     result.status = PipelineStatus::kCloudNotOrganized;
     result.message =
-        "输入点云不是有效的有组织点云。";
+        "输入点云既不是有组织点云，也不是保持像素顺序的扁平点云。";
     return result;
   }
 
-  // 直接像素索引模式依赖像素一一对应关系，因此点云尺寸必须与
-  // 原始RGB检测图像完全相同。
-  if (cloud_message.width !=
-          detection_frame.image_width ||
-      cloud_message.height !=
-          detection_frame.image_height)
+  // 直接像素索引模式依赖像素一一对应关系，因此普通有组织点云
+  // 必须与RGB同尺寸，扁平点云则必须恰好包含全部像素。
+  const bool organized_dimensions_match =
+      cloud_message.height > 1U &&
+      cloud_message.width == detection_frame.image_width &&
+      cloud_message.height == detection_frame.image_height;
+
+  if (!organized_dimensions_match &&
+      !is_flattened_pixel_cloud)
   {
     result.status = PipelineStatus::kDimensionMismatch;
     result.message =
-        "点云宽高与原始RGB图像宽高不一致，"
-        "不能直接使用检测框索引点云。";
+        "点云尺寸与原始RGB图像不匹配，不能直接使用检测框索引点云。";
     return result;
   }
 
@@ -357,31 +371,28 @@ RoiExtractionResult PointCloudROI::extract(
     return result;
   }
 
-  if (!organized_cloud.isOrganized() ||
-      organized_cloud.height <= 1U)
+  const bool pcl_is_organized =
+      organized_cloud.isOrganized() &&
+      organized_cloud.width == detection_frame.image_width &&
+      organized_cloud.height == detection_frame.image_height;
+
+  const bool pcl_is_flattened_pixel_cloud =
+      organized_cloud.height == 1U &&
+      organized_cloud.width ==
+          detection_frame.image_width *
+              detection_frame.image_height;
+
+  if (!pcl_is_organized && !pcl_is_flattened_pixel_cloud)
   {
     result.status = PipelineStatus::kCloudNotOrganized;
     result.message =
-        "PointCloud2转换后不是有组织PCL点云。";
-    return result;
-  }
-
-  if (organized_cloud.width !=
-          detection_frame.image_width ||
-      organized_cloud.height !=
-          detection_frame.image_height)
-  {
-    result.status = PipelineStatus::kDimensionMismatch;
-    result.message =
-        "PCL转换后的点云尺寸与RGB图像尺寸不一致。";
+        "PointCloud2转换后不是可按像素索引的PCL点云。";
     return result;
   }
 
   const std::size_t expected_point_count =
-      static_cast<std::size_t>(
-          organized_cloud.width) *
-      static_cast<std::size_t>(
-          organized_cloud.height);
+      static_cast<std::size_t>(detection_frame.image_width) *
+      static_cast<std::size_t>(detection_frame.image_height);
 
   if (organized_cloud.points.size() !=
       expected_point_count)
@@ -535,24 +546,29 @@ bool PointCloudROI::extractROI(
   // 不允许调用失败后遗留上一帧ROI。
   roi_points.clear();
 
-  if (!cloud.isOrganized() ||
-      cloud.width == 0U ||
-      cloud.height <= 1U)
+  const bool organized_pixel_cloud =
+      cloud.isOrganized() &&
+      cloud.width == image_width &&
+      cloud.height == image_height;
+
+  const bool flattened_pixel_cloud =
+      cloud.height == 1U &&
+      cloud.width == image_width * image_height;
+
+  if ((!organized_pixel_cloud && !flattened_pixel_cloud) ||
+      cloud.width == 0U)
   {
     return false;
   }
 
-  if (image_width == 0U ||
-      image_height == 0U ||
-      cloud.width != image_width ||
-      cloud.height != image_height)
+  if (image_width == 0U || image_height == 0U)
   {
     return false;
   }
 
   const std::size_t expected_point_count =
-      static_cast<std::size_t>(cloud.width) *
-      static_cast<std::size_t>(cloud.height);
+      static_cast<std::size_t>(image_width) *
+      static_cast<std::size_t>(image_height);
 
   if (cloud.points.size() != expected_point_count)
   {
@@ -637,8 +653,7 @@ bool PointCloudROI::extractROI(
     {
       const std::size_t index =
           static_cast<std::size_t>(y) *
-              static_cast<std::size_t>(
-                  cloud.width) +
+              static_cast<std::size_t>(image_width) +
           static_cast<std::size_t>(x);
 
       if (index >= cloud.points.size())

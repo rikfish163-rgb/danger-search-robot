@@ -506,10 +506,13 @@ class GraphNBVStageB31ManualGate:
 
     def gate_allows(self, x: float, y: float) -> bool:
         # Hard forward gate: once the gate origin/direction exists,
-        # points behind the gate plane are never allowed.
+        # keep a small tolerance for the first path samples.  TEB can
+        # legitimately back up a few cells while turning through the
+        # corridor; rejecting those samples makes every otherwise reachable
+        # forward goal look unreachable.
         if self.gate_origin is None or self.gate_forward is None:
             return True
-        return self.gate_progress(x, y) >= 0.0
+        return self.gate_progress(x, y) >= -self.gate_backtrack_margin
 
     def behind_gate_penalty(self, x: float, y: float) -> float:
         if (

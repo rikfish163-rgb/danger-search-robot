@@ -1,5 +1,7 @@
 <launch>
   <arg name="clear_all_floor_maps" default="false" />
+  <arg name="sensor_frame" default="body" />
+  <arg name="input_cloud_topic" default="/cloud_registered_body" />
 
   <!--
     只启动二维投影。
@@ -17,6 +19,8 @@
     <rosparam command="load"
               file="$(find danger_search_robot)/config/fastlio_2d_projection.yaml"/>
     <param name="clear_all_floor_maps" value="$(arg clear_all_floor_maps)" />
+    <param name="sensor_frame" value="$(arg sensor_frame)" />
+    <param name="input_cloud_topic" value="$(arg input_cloud_topic)" />
 
   </node>
 

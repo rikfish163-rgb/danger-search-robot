@@ -33,6 +33,7 @@ ENABLE_LIVOX="$(as_ros_bool "${ENABLE_LIVOX:-$ENABLE_SENSOR_DATA}")"
 ENABLE_LIVOX_IMU="$(as_ros_bool "${ENABLE_LIVOX_IMU:-$ENABLE_LIVOX}")"
 ENABLE_REALSENSE_INPUT="${ENABLE_REALSENSE:-${ENABLE_DEPTH_CAMERA:-$ENABLE_SENSOR_DATA}}"
 ENABLE_REALSENSE="$(as_ros_bool "$ENABLE_REALSENSE_INPUT")"
+ENABLE_REALSENSE_ROS_PLUGIN="$(as_ros_bool "${ENABLE_REALSENSE_ROS_PLUGIN:-0}")"
 ENABLE_FRONT_CAMERA="$(as_ros_bool "${ENABLE_FRONT_CAMERA:-0}")"
 ENABLE_REFEREE_ODOM="$(as_ros_bool "${ENABLE_REFEREE_ODOM:-1}")"
 ENABLE_GROUND_TRUTH="$(as_ros_bool "${ENABLE_GROUND_TRUTH:-1}")"
@@ -125,8 +126,11 @@ if [ ! -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
   exit 1
 fi
 source "$WORKSPACE_DIR/devel/setup.bash"
-export ROS_PACKAGE_PATH="$WORKSPACE_DIR/src:${ROS_PACKAGE_PATH:-}"
-export CMAKE_PREFIX_PATH="$WORKSPACE_DIR/devel:${CMAKE_PREFIX_PATH:-}"
+export PATH="/opt/ros/noetic/bin:${PATH:-}"
+export PYTHONPATH="$WORKSPACE_DIR/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:${PYTHONPATH:-}"
+export LD_LIBRARY_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${LD_LIBRARY_PATH:-}"
+export ROS_PACKAGE_PATH="$WORKSPACE_DIR/src:/opt/ros/noetic/share:${ROS_PACKAGE_PATH:-}"
+export CMAKE_PREFIX_PATH="$WORKSPACE_DIR/devel:/opt/ros/noetic${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"
 export PYTHONPATH="$WORKSPACE_DIR/src/SimEnv/src/building_generator_classic:$WORKSPACE_DIR/src/SimEnv/src/building_generator_core:${PYTHONPATH:-}"
 
 GENERATOR_SCRIPT="$WORKSPACE_DIR/src/SimEnv/src/building_obstacles/scripts/generate_competition_scene.py"
@@ -173,7 +177,7 @@ export UNITREE_CTRL_DT
 export UNITREE_LOG_WAIT_WARNINGS
 export CONTROLLER_SPAWNER_TIMEOUT
 export GAZEBO_MODEL_PATH="${GAZEBO_MODEL_PATH:-}:$SCENE_OUTPUT_DIR:$UNITREE_GAZEBO_MODELS"
-export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:${GAZEBO_PLUGIN_PATH:-}"
+export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${GAZEBO_PLUGIN_PATH:-}"
 
 echo "=========================================="
 echo "Competition scene is ready"
@@ -223,6 +227,7 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   enable_livox:="$ENABLE_LIVOX" \
   enable_livox_imu:="$ENABLE_LIVOX_IMU" \
   enable_realsense:="$ENABLE_REALSENSE" \
+  enable_realsense_ros_plugin:="$ENABLE_REALSENSE_ROS_PLUGIN" \
   enable_front_camera:="$ENABLE_FRONT_CAMERA" \
   enable_referee_odom:="$ENABLE_REFEREE_ODOM" \
   enable_ground_truth:="$ENABLE_GROUND_TRUTH" \

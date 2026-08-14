@@ -30,6 +30,15 @@
             <far>30.0</far>
           </clip>
         </camera>
+        <plugin name="exploration_camera_ros" filename="libgazebo_ros_camera.so">
+          <robotNamespace>/exploration_camera</robotNamespace>
+          <alwaysOn>true</alwaysOn>
+          <updateRate>10.0</updateRate>
+          <cameraName>exploration_camera</cameraName>
+          <imageTopicName>image_raw</imageTopicName>
+          <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+          <frameName>exploration_camera_optical</frameName>
+        </plugin>
       </sensor>
     </link>
   </model>

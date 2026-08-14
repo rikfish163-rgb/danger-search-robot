@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="exploration_ray_lidar">
+    <static>true</static>
+    <link name="laser_link">
+      <sensor name="stable_laser" type="ray">
+        <always_on>true</always_on>
+        <update_rate>10.0</update_rate>
+        <visualize>false</visualize>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.1415926536</min_angle>
+              <max_angle>3.1415926536</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>0.15</min>
+            <max>30.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </ray>
+        <plugin name="stable_laser_ros" filename="libgazebo_ros_laser.so">
+          <topicName>/stable_scan</topicName>
+          <frameName>laser_livox</frameName>
+        </plugin>
+      </sensor>
+    </link>
+  </model>
+</sdf>

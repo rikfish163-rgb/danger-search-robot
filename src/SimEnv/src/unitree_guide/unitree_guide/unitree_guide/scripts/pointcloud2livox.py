@@ -13,7 +13,7 @@ import struct
 import numpy as np
 from threading import Lock
 
-from sensor_msgs.msg import PointCloud, PointCloud2,PointField
+from sensor_msgs.msg import PointCloud, PointCloud2, PointField
 from unitree_guide.msg import CustomMsg, CustomPoint
 import sensor_msgs.point_cloud2 as pc2
 from nav_msgs.msg import Odometry
@@ -61,7 +61,8 @@ def pointcloud2_to_custommsg(pointcloud2):
     fmt = _get_struct_fmt(pointcloud2)
     for i in range(0, len(pointcloud2.data), pointcloud2.point_step):
         point_data = pointcloud2.data[i:i+pointcloud2.point_step]
-        x, y, z = struct.unpack(fmt, point_data)
+        values = struct.unpack(fmt, point_data)
+        x, y, z = values[:3]
 
         custom_point = CustomPoint()
         custom_point.offset_time = rospy.Time.now().to_nsec() - custom_msg.timebase
@@ -81,8 +82,28 @@ def publish_custom_livox(stamp, points):
     header = rospy.Header()
     header.stamp = stamp
     header.frame_id = LOCAL_SENSOR_FRAME
-    cloud_msg = pc2.create_cloud_xyz32(header, points)
+    cloud_msg = create_xyz_intensity_cloud(header, points)
     pub_laser_livox.publish(pointcloud2_to_custommsg(cloud_msg))
+
+
+def create_xyz_intensity_cloud(header, points):
+    """Create a FAST-LIO-compatible cloud for the synthetic ray sensor.
+
+    Gazebo's ray sensor has no physical reflectivity channel. FAST-LIO's
+    MARSIM preprocessing nevertheless expects an ``intensity`` field, so use
+    a constant synthetic reflectivity instead of emitting an XYZ-only cloud.
+    """
+    fields = [
+        PointField('x', 0, PointField.FLOAT32, 1),
+        PointField('y', 4, PointField.FLOAT32, 1),
+        PointField('z', 8, PointField.FLOAT32, 1),
+        PointField('intensity', 12, PointField.FLOAT32, 1),
+    ]
+    return pc2.create_cloud(
+        header,
+        fields,
+        [(x, y, z, 1.0) for x, y, z in points],
+    )
 
 def rotate_pointcloud_y(points, theta):
     # theta = np.deg2rad(theta_deg)
@@ -175,7 +196,8 @@ def filter_points_by_angle(points, min_angle_deg, max_angle_deg):
 
 
 def mmw_handler(mmw_cloud_msg):
-    global latest_odom, pub_laser_cloud,pub_laser_livox, laser_blind,min_angle,max_angle,use_ground_truth_odom
+    global latest_odom, pub_laser_cloud,pub_laser_livox, laser_blind, laser_max_range
+    global min_angle,max_angle,use_ground_truth_odom
 
     with m_buf:
         odom_now = latest_odom
@@ -203,11 +225,16 @@ def mmw_handler(mmw_cloud_msg):
         header = rospy.Header()
         header.stamp = stamp
         header.frame_id = ODOM_FRAME if use_ground_truth_odom else LOCAL_SENSOR_FRAME
-        pub_laser_cloud.publish(pc2.create_cloud_xyz32(header, []))
+        pub_laser_cloud.publish(create_xyz_intensity_cloud(header, []))
         return
     points_np = points_np.reshape((-1, 3))
     distances = np.linalg.norm(points_np, axis=1)
-    filtered_points = points_np[distances >= laser_blind].tolist()
+    valid_range = (
+        np.isfinite(distances)
+        & (distances >= laser_blind)
+        & (distances <= laser_max_range)
+    )
+    filtered_points = points_np[valid_range].tolist()
 
     # Step 3.5 转为 CustomMsg 并发布
     with m_buf:
@@ -225,7 +252,7 @@ def mmw_handler(mmw_cloud_msg):
     header = rospy.Header()
     header.stamp = stamp
     header.frame_id = pointcloud2_frame
-    cloud_msg = pc2.create_cloud_xyz32(header, transformed_points)
+    cloud_msg = create_xyz_intensity_cloud(header, transformed_points)
     # 发布pocintcloud2消息
     pub_laser_cloud.publish(cloud_msg)
 
@@ -234,7 +261,8 @@ def mmw_handler(mmw_cloud_msg):
 
 
 def main():
-    global pub_laser_cloud,pub_laser_livox,laser_blind,min_angle,max_angle,tf_listener,use_ground_truth_odom
+    global pub_laser_cloud,pub_laser_livox,laser_blind,laser_max_range
+    global min_angle,max_angle,tf_listener,use_ground_truth_odom
 
 
     rospy.init_node('pre_mmw_to_odom', anonymous=True)
@@ -244,6 +272,13 @@ def main():
 
     laser_blind = rospy.get_param('~laser_blind', 0.2)  # 盲区半径
     rospy.loginfo(f"Blind range : {laser_blind} m")
+
+    laser_max_range = rospy.get_param('~laser_max_range', 12.0)
+    if laser_max_range <= laser_blind:
+        raise rospy.ROSInitException(
+            "laser_max_range must be greater than laser_blind"
+        )
+    rospy.loginfo(f"Maximum usable range : {laser_max_range} m")
 
 
     min_angle = rospy.get_param('~min_angle', 2.5)  # 默认下限-15度

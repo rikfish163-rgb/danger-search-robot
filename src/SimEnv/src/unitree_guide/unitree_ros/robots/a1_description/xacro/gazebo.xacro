@@ -410,6 +410,15 @@
                         <far>8.0</far>
                     </clip>
                 </camera>
+                <plugin name="real_sense_rgb_controller" filename="libgazebo_ros_camera.so">
+                    <alwaysOn>true</alwaysOn>
+                    <updateRate>20.0</updateRate>
+                    <cameraName>real_sense</cameraName>
+                    <imageTopicName>rgb/image_raw</imageTopicName>
+                    <cameraInfoTopicName>rgb/camera_info</cameraInfoTopicName>
+                    <frameName>real_sense_optical_frame</frameName>
+                    <hackBaseline>0.0</hackBaseline>
+                </plugin>
                 <xacro:if value="${'$(arg ENABLE_REALSENSE_ROS_PLUGIN)' == 'true'}">
                 <plugin name="kinect_real_sense_controller" filename="libgazebo_ros_openni_kinect.so">
                     <cameraName>real_sense</cameraName>
@@ -430,6 +439,39 @@
                     <pointCloudCutoff>0.4</pointCloudCutoff>
                 </plugin>
                 </xacro:if>
+            </sensor>
+            <!--
+                Keep depth in Gazebo transport instead of loading the
+                crash-prone OpenNI ROS plugin.  A small bridge converts the
+                native R_FLOAT32 depth image to sensor_msgs/PointCloud2.
+            -->
+            <sensor type="depth" name="real_sense_depth">
+                <always_on>true</always_on>
+                <update_rate>10.0</update_rate>
+                <camera>
+                    <horizontal_fov>${60.0*3.14/180.0}</horizontal_fov>
+                    <image>
+                        <format>R_FLOAT32</format>
+                        <width>640</width>
+                        <height>480</height>
+                    </image>
+                    <clip>
+                        <near>0.05</near>
+                        <far>8.0</far>
+                    </clip>
+                </camera>
+                <plugin name="real_sense_depth_controller" filename="libgazebo_ros_depth_camera.so">
+                    <cameraName>real_sense</cameraName>
+                    <alwaysOn>true</alwaysOn>
+                    <updateRate>10.0</updateRate>
+                    <imageTopicName>depth/image_raw</imageTopicName>
+                    <depthImageTopicName>depth/image_raw</depthImageTopicName>
+                    <pointCloudTopicName>depth/points</pointCloudTopicName>
+                    <cameraInfoTopicName>depth/camera_info</cameraInfoTopicName>
+                    <depthImageCameraInfoTopicName>depth/camera_info</depthImageCameraInfoTopicName>
+                    <frameName>real_sense_optical_frame</frameName>
+                    <pointCloudCutoff>0.05</pointCloudCutoff>
+                </plugin>
             </sensor>
         </gazebo>
     </xacro:if>

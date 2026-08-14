@@ -162,6 +162,10 @@ target_link_libraries(state_from_gazebo ${catkin_LIBRARIES})
 
 add_executable(junior_ctrl src/main.cpp ${SRC_LIST})
 
+# Enable the existing move_base-backed trotting state so navigation can drive
+# the stable classical controller through /cmd_vel instead of the RL policy.
+target_compile_definitions(junior_ctrl PRIVATE COMPILE_WITH_MOVE_BASE)
+
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-as-needed")
 
 target_link_libraries(junior_ctrl
