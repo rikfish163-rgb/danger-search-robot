@@ -119,4 +119,12 @@ start_launch fastlio_2d_projection.log \
   input_cloud_topic:=/livox/Pointcloud2 sensor_frame:=body \
   clear_all_floor_maps:=true
 
+start_binary /mapping_health_watchdog mapping_health_watchdog.log \
+  python3 "$ROOT_DIR/src/danger_search_robot/scripts/mapping_health_watchdog.py" \
+  _cloud_topic:=/livox/Pointcloud2 \
+  _map_topic:=/map_confirmed \
+  _status_topic:=/fastlio_2d_projection/status \
+  _max_cloud_age:=0.75 \
+  _max_map_age:=1.25
+
 "$ROOT_DIR/tools/check_exploration_stack.sh"

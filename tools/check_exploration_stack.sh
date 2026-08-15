@@ -75,7 +75,8 @@ for node in \
   /yolo_detector_node \
   /danger_localization_node \
   /danger_result_writer \
-  /fastlio_2d_projection; do
+  /fastlio_2d_projection \
+  /mapping_health_watchdog; do
   require_node "$node"
 done
 
@@ -87,6 +88,7 @@ require_publisher /sim_rgb/image_raw
 require_publisher /sim_depth/points
 require_publisher /yolo/detections
 require_publisher /map_confirmed
+require_publisher /mapping_healthy
 
 for service in \
   /gazebo/get_model_state \
@@ -97,6 +99,23 @@ for service in \
   /target_manager/reset; do
   require_service "$service"
 done
+
+mapping_health_ok=0
+health_deadline=$((SECONDS + ${MAPPING_HEALTH_TIMEOUT_SECONDS:-20}))
+while [ "$SECONDS" -lt "$health_deadline" ]; do
+  health_payload="$(timeout --foreground 4s rostopic echo -n1 /mapping_healthy 2>/dev/null || true)"
+  if printf '%s\n' "$health_payload" | grep -Eiq 'data:[[:space:]]*(true|1)[[:space:]]*$'; then
+    mapping_health_ok=1
+    echo "preflight mapping health ok"
+    break
+  fi
+  sleep 1
+done
+if [ "$mapping_health_ok" -ne 1 ]; then
+  echo "preflight mapping health FAILED" >&2
+  timeout --foreground 4s rostopic echo -n1 /mapping_health >&2 || true
+  failures=$((failures + 1))
+fi
 
 if [ "${CHECK_NAVIGATION_RUNTIME:-0}" = "1" ]; then
   for node in /unitree_gazebo_servo /move_base; do
