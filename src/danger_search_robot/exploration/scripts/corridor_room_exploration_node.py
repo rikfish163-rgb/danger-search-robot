@@ -1382,7 +1382,11 @@ class CorridorRoomExplorer:
             candidate = Candidate(
                 x=x,
                 y=y,
-                yaw=self.mission_origin[2],
+                # Face the selected point instead of forcing the locked
+                # corridor heading. This avoids an unnecessary reverse
+                # segment when a frontier lies behind the robot's current
+                # heading or on a short side branch.
+                yaw=math.atan2(y - robot_pose[1], x - robot_pose[0]),
                 kind="CORRIDOR_FRONTIER",
                 score=score,
                 progress=float(progress[row, col]),
@@ -1440,7 +1444,7 @@ class CorridorRoomExplorer:
             return Candidate(
                 x=x,
                 y=y,
-                yaw=self.mission_origin[2],
+                yaw=math.atan2(y - robot_pose[1], x - robot_pose[0]),
                 kind="CORRIDOR_PROBE",
                 score=float(scores[int(index)]),
                 progress=float(progress[row, col]),
