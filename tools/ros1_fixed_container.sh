@@ -86,12 +86,11 @@ status() {
 
 up() {
   check_paths
-  # Once the pinned container exists, it is already isolated on its private
-  # network.  Only block creation of a new container; stale historical
-  # containers must not prevent routine reuse of the fixed one.
-  if ! container_exists; then
-    check_stale_simenv
-  fi
+  # A private ROS network prevents cross-master topic leakage, but it does not
+  # prevent old host-network simulations from consuming CPU or writing to the
+  # same bind mount.  Always fail closed until those historical runs are
+  # stopped (or explicitly overridden).
+  check_stale_simenv
   docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || \
     docker network create --driver bridge "$NETWORK_NAME" >/dev/null
 

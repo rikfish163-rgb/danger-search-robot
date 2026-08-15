@@ -65,8 +65,15 @@ def points_to_custommsg(stamp, points):
 
 
 def publish_custom_livox(stamp, points):
-    if publish_custom_enabled:
-        pub_laser_livox.publish(points_to_custommsg(stamp, points))
+    if not publish_custom_enabled:
+        return
+    # The simulation/navigation path consumes /livox/Pointcloud2.  Building a
+    # CustomMsg still walks every point and allocates one ROS message per point,
+    # so do not pay that cost when /livox/lidar2 has no subscribers.  If a
+    # FAST-LIO/Livox consumer connects later, the compatibility output resumes.
+    if pub_laser_livox.get_num_connections() == 0:
+        return
+    pub_laser_livox.publish(points_to_custommsg(stamp, points))
 
 
 def create_xyz_intensity_cloud(header, points):
@@ -89,16 +96,19 @@ def create_xyz_intensity_cloud(header, points):
     )
 
 def rotate_pointcloud_y(points, theta):
-    # theta = np.deg2rad(theta_deg)
+    points_array = np.asarray(points, dtype=np.float32).reshape((-1, 3))
+    if points_array.size == 0 or abs(theta) < 1e-9:
+        return points_array
     cos_t, sin_t = np.cos(theta), np.sin(theta)
-    R_y = np.array([
-        [ cos_t, 0.0,  sin_t],
-        [ 0.0,   1.0,  0.0 ],
-        [-sin_t, 0.0,  cos_t]
-    ])
-    points_array = np.array(points, dtype=np.float32)
-    rotated = (R_y @ points_array.T).T
-    return rotated.tolist()
+    rotation = np.array(
+        [
+            [cos_t, 0.0, sin_t],
+            [0.0, 1.0, 0.0],
+            [-sin_t, 0.0, cos_t],
+        ],
+        dtype=np.float32,
+    )
+    return points_array @ rotation.T
 
 def odom_callback(odom_msg):
     global latest_odom, odom_history
@@ -145,9 +155,9 @@ def transform_points_to_odom(points_sensor, odom_msg):
         )
         rot_base_matrix = tf.transformations.quaternion_matrix(rot_base)[:3, :3]
 
-        points_np = np.array(points_sensor, dtype=np.float32)
+        points_np = np.asarray(points_sensor, dtype=np.float32).reshape((-1, 3))
         if points_np.size == 0:
-            return []
+            return points_np
         points_base = (rot_base_matrix @ points_np.T).T + trans_base
         
         # 提取 odom → sensor_frame 的变换
@@ -160,8 +170,7 @@ def transform_points_to_odom(points_sensor, odom_msg):
         rot = quat_to_rot_matrix(odom_msg.pose.pose.orientation)
 
         # 先旋转，再平移： P_odom = R * P_sensor + t
-        transformed = (rot @ points_base.T).T + trans
-        return transformed.tolist()
+        return (rot @ points_base.T).T + trans
 
     except Exception as e:
         rospy.logwarn("Exception in transform_points_to_odom: %s", str(e))
@@ -172,28 +181,26 @@ def transform_points_to_odom(points_sensor, odom_msg):
             odom_msg.pose.pose.position.z
         ])
         rot = quat_to_rot_matrix(odom_msg.pose.pose.orientation)
-        points_np = np.array(points_sensor, dtype=np.float32)
+        points_np = np.asarray(points_sensor, dtype=np.float32).reshape((-1, 3))
         if points_np.size == 0:
-            return []
-        transformed = (rot @ points_np.T).T + trans
-        return transformed.tolist()
+            return points_np
+        return (rot @ points_np.T).T + trans
 
 
 def filter_points_by_angle(points, min_angle_deg, max_angle_deg):
     """根据垂直角度过滤点云"""
-    points_np = np.array(points, dtype=np.float32)
+    points_np = np.asarray(points, dtype=np.float32).reshape((-1, 3))
     if points_np.size == 0:
-        return []
-    points_np = points_np.reshape((-1, 3))
+        return points_np
     
     # 计算每个点的垂直角度
-    distances = np.linalg.norm(points_np[:, :2], axis=1)  # xy平面距离
+    distances = np.hypot(points_np[:, 0], points_np[:, 1])  # xy平面距离
     angles = np.arctan2(points_np[:, 2], distances)  # 垂直角度
     angles_deg = np.rad2deg(angles)
     
     # 角度过滤
     mask = (angles_deg >= min_angle_deg) & (angles_deg <= max_angle_deg)
-    return points_np[mask].tolist()
+    return points_np[mask]
 
 
 def mmw_handler(mmw_cloud_msg):
@@ -251,13 +258,16 @@ def _mmw_handler(mmw_cloud_msg):
             )
             return
 
-    # Step 1: 提取原始点云 (更快的方式)
-    x = np.fromiter((p.x for p in mmw_cloud_msg.points), dtype=np.float32)
-    y = np.fromiter((p.y for p in mmw_cloud_msg.points), dtype=np.float32)
-    z = np.fromiter((p.z for p in mmw_cloud_msg.points), dtype=np.float32)
-    raw_points = np.column_stack((x, y, z)).tolist()
+    # Step 1: 提取原始点云；后续过滤和坐标变换保持 ndarray，避免多次
+    # list -> ndarray -> list 拷贝。只有最后创建 ROS 消息时才物化 tuples。
+    source_points = mmw_cloud_msg.points
+    raw_points = np.fromiter(
+        (value for point in source_points for value in (point.x, point.y, point.z)),
+        dtype=np.float32,
+        count=3 * len(source_points),
+    ).reshape((-1, 3))
 
-    if not raw_points:
+    if raw_points.size == 0:
         return
 
     # Step 2: 可选的固定 Y 轴旋转（比如安装角度补偿）
@@ -267,7 +277,7 @@ def _mmw_handler(mmw_cloud_msg):
     angle_filtered_points = filter_points_by_angle(rotated_points, min_angle, max_angle)
 
     # Step 3: 盲区过滤
-    points_np = np.array(angle_filtered_points, dtype=np.float32)
+    points_np = angle_filtered_points
     if points_np.size == 0:
         publish_custom_livox(stamp, [])
         header = rospy.Header()
@@ -282,7 +292,7 @@ def _mmw_handler(mmw_cloud_msg):
         & (distances >= laser_blind)
         & (distances <= laser_max_range)
     )
-    filtered_points = points_np[valid_range].tolist()
+    filtered_points = points_np[valid_range]
 
     # Step 3.5 转为 CustomMsg 并发布
     publish_custom_livox(stamp, filtered_points)
