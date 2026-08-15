@@ -9,7 +9,7 @@ RUNTIME_DIR="${EXPLORATION_STACK_RUNTIME_DIR:-/tmp/ros1_exploration_stack}"
 WAIT_SECONDS="${NAVIGATION_WAIT_SECONDS:-60}"
 ACTIVATE_RL_MODE="${ACTIVATE_RL_MODE:-1}"
 RESET_RL_MODE="${RESET_RL_MODE:-1}"
-MAP_TOPIC="${NAVIGATION_MAP_TOPIC:-/map_confirmed}"
+MAP_TOPIC="${NAVIGATION_MAP_TOPIC:-/map_raw}"
 mkdir -p "$RUNTIME_DIR"
 
 source /opt/ros/noetic/setup.bash
@@ -60,7 +60,7 @@ fi
 for node in /gazebo /unitree_gazebo_servo; do
   wait_for_node "$node"
 done
-for topic in /clock /map_confirmed /Odometry_gazebo; do
+for topic in /clock "$MAP_TOPIC" /Odometry_gazebo; do
   if ! topic_present "$topic"; then
     echo "navigation prerequisite topic missing: $topic" >&2
     exit 78

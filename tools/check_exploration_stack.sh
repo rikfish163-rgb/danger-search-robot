@@ -87,6 +87,7 @@ require_publisher /livox/Pointcloud2
 require_publisher /sim_rgb/image_raw
 require_publisher /sim_depth/points
 require_publisher /yolo/detections
+require_publisher /map_raw
 require_publisher /map_confirmed
 require_publisher /mapping_healthy
 

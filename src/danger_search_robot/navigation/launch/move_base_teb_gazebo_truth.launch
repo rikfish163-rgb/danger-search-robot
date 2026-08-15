@@ -1,6 +1,6 @@
 <launch>
   <arg name="robot_base_frame" default="body" />
-  <arg name="map_topic" default="/map_confirmed" />
+  <arg name="map_topic" default="/map_raw" />
   <!--
     Container/Gazebo validation profile.
     state_from_gazebo publishes odom -> base and /Odometry_gazebo.

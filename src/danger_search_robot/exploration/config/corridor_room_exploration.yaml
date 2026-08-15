@@ -1,6 +1,6 @@
 # Fully automatic corridor-first, room-second exploration
 
-map_topic: /map_confirmed
+map_topic: /map_raw
 global_frame: world
 base_frame: body
 move_base_action: /move_base
