@@ -70,8 +70,39 @@ SimEnv → 站立(按2) → livox bridge → FAST-LIO → level_tf → world标�
 - 诊断报告：`/home/hetaisheng/机器人卡死问题诊断报告_2026-08-06.md`
 - 成员B 工作说明：`/home/hetaisheng/成员B_Graph_NBV_候选点gate_frontier筛选_工作说明.docx`
 
-## 容器环境（simenv-run）
+## 固定 ROS1 容器环境
 
-- 镜像：`osrf/ros:noetic-simenv-ready`（重建脚本 `simenv_rebuild.sh` / `simenv_init.sh`）
-- 启动：`simenv_restore.sh`（宿主）
-- 注意：容器 llvmpipe 软件渲染下仿真 0.36x 非实时，SLAM 长时间运行会发散；GPU 实时环境正常
+当前工作区使用一个固定的 ROS Noetic 镜像 digest，并且只允许一个专用容器挂载本工作区：
+
+```text
+image:   osrf/ros@sha256:7dbfb9576d8e6d226c31e06129a82aaab8702695f38eca2116918cb9b9308797
+mount:   <this workspace> -> /root/catkin_ws
+deps:    /media/hetaisheng/044A81D94A81C83E/ros1_isolated_local/deps (read-only)
+network: ros1-simenv-fixed (private bridge)
+ROS:     http://127.0.0.1:11311 inside the container
+```
+
+宿主机从本工作区执行：
+
+```bash
+tools/ros1_fixed_container.sh up
+tools/ros1_fixed_container.sh status
+tools/ros1_fixed_container.sh exec bash
+```
+
+不要同时运行旧的 `simenv-run0810*` 容器；启动脚本会拒绝这种共享工作区/ROS 状态的情况。进入容器后，先启动 roscore 和 `src/SimEnv/auto.sh`，将 `START_CAMERA_BRIDGES=1` 固定打开，再使用下面的固定启动顺序：
+
+```bash
+docker exec -it simenv-ros1-fixed bash
+source /opt/ros/noetic/setup.bash
+source /root/catkin_ws/devel/setup.bash
+nohup roscore > /tmp/roscore_fixed.log 2>&1 < /dev/null &
+START_CAMERA_BRIDGES=1 GUI=false PAUSED=true AUTO_UNPAUSE=1 \
+  CONTROLLER_FOREGROUND=0 src/SimEnv/auto.sh > /tmp/ros1_fixed_auto.log 2>&1 &
+tools/prepare_exploration_stack.sh
+tools/run_three_floor_rerun.sh
+```
+
+`prepare_exploration_stack.sh` 会初始化 0 层状态、打开入口和三部电梯门，按依赖顺序启动真值 TF、Gazebo RGB/深度桥接、vision_stack 和 FAST-LIO 二维投影。`run_three_floor_rerun.sh` 启动前还会检查 ROS master、关键节点、点云/RGB/深度/YOLO 发布者和电梯/地图服务；检查不通过就退出，不会把“视觉没启动”的过程误记成探索结果。
+
+探索任务的高频日志先写入容器 `/tmp`。任务进程退出后，`tools/publish_three_floor_runtime.sh` 才在有超时保护的独立步骤中把摘要和主日志发布回 `results/`，避免 NTFS bind mount 的慢 I/O 把 ROS 回调和任务主进程一起卡在 `D` 状态。Gazebo 使用软件渲染时仍可能低于实时速度；这属于性能风险，不应与容器/ROS 主节点串线混为一谈。

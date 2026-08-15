@@ -35,6 +35,7 @@ ENABLE_REALSENSE_INPUT="${ENABLE_REALSENSE:-${ENABLE_DEPTH_CAMERA:-$ENABLE_SENSO
 ENABLE_REALSENSE="$(as_ros_bool "$ENABLE_REALSENSE_INPUT")"
 ENABLE_REALSENSE_ROS_PLUGIN="$(as_ros_bool "${ENABLE_REALSENSE_ROS_PLUGIN:-0}")"
 ENABLE_FRONT_CAMERA="$(as_ros_bool "${ENABLE_FRONT_CAMERA:-0}")"
+START_CAMERA_BRIDGES="$(as_ros_bool "${START_CAMERA_BRIDGES:-0}")"
 ENABLE_REFEREE_ODOM="$(as_ros_bool "${ENABLE_REFEREE_ODOM:-1}")"
 ENABLE_GROUND_TRUTH="$(as_ros_bool "${ENABLE_GROUND_TRUTH:-1}")"
 ENABLE_FOOT_CONTACT_SENSOR="$(as_ros_bool "${ENABLE_FOOT_CONTACT_SENSOR:-0}")"
@@ -118,8 +119,11 @@ pkill -f "building_generator_classic_control" 2>/dev/null || true
 pkill -f "gzserver|gzclient|gazebo" 2>/dev/null || true
 pkill -f "junior_ctrl" 2>/dev/null || true
 pkill -f "virtual_joy.py" 2>/dev/null || true
+pkill -f "gazebo_image_to_ros|gazebo_depth_to_pointcloud" 2>/dev/null || true
 
 echo "Sourcing ROS environment..."
+export ROS_MASTER_URI="${ROS_MASTER_URI:-http://localhost:11311}"
+export ROS_HOSTNAME="${ROS_HOSTNAME:-localhost}"
 source /opt/ros/noetic/setup.bash
 if [ ! -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
   echo "Missing $WORKSPACE_DIR/devel/setup.bash. Run catkin_make in this workspace before starting the simulation." >&2
@@ -191,6 +195,7 @@ echo "  Sensor data default: $ENABLE_SENSOR_DATA"
 echo "  Livox lidar: $ENABLE_LIVOX"
 echo "  Livox IMU: $ENABLE_LIVOX_IMU"
 echo "  RealSense depth camera: $ENABLE_REALSENSE"
+  echo "  Gazebo RGB/depth bridges: $START_CAMERA_BRIDGES"
 echo "  Front RGB camera: $ENABLE_FRONT_CAMERA"
 echo "  PointCloud2 converter: $ENABLE_POINTCLOUD_CONVERTER"
 echo "  Ground truth topics: $ENABLE_GROUND_TRUTH"
@@ -240,6 +245,43 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
 wait_for_robot_spawn
+
+start_camera_bridges() {
+  if [ "$START_CAMERA_BRIDGES" != "true" ]; then
+    return
+  fi
+  if [ "$ENABLE_REALSENSE" != "true" ]; then
+    echo "START_CAMERA_BRIDGES=true requires ENABLE_REALSENSE=true." >&2
+    exit 1
+  fi
+
+  local rgb_bridge="$WORKSPACE_DIR/devel/lib/danger_search_robot/gazebo_image_to_ros"
+  local depth_bridge="$WORKSPACE_DIR/devel/lib/danger_search_robot/gazebo_depth_to_pointcloud"
+  [ -x "$rgb_bridge" ] || { echo "missing RGB bridge: $rgb_bridge" >&2; exit 1; }
+  [ -x "$depth_bridge" ] || { echo "missing depth bridge: $depth_bridge" >&2; exit 1; }
+
+  if ! rosnode list 2>/dev/null | grep -Fxq /gazebo_sim_rgb_bridge; then
+    echo "Starting Gazebo RGB bridge before vision stack..."
+    nohup "$rgb_bridge" \
+      /gazebo/generated_world/a1_gazebo/base/real_sense/image \
+      /sim_rgb/image_raw real_sense_color_optical_frame \
+      __name:=gazebo_sim_rgb_bridge \
+      > "$WORKSPACE_DIR/logs/gazebo_sim_rgb_bridge.log" 2>&1 &
+    echo $! > "$WORKSPACE_DIR/logs/gazebo_sim_rgb_bridge.pid"
+  fi
+  if ! rosnode list 2>/dev/null | grep -Fxq /gazebo_sim_depth_bridge; then
+    echo "Starting Gazebo depth bridge before vision stack..."
+    nohup "$depth_bridge" \
+      /gazebo/generated_world/a1_gazebo/base/real_sense_depth/image \
+      /sim_depth/points real_sense_depth_optical_frame 1.0472 \
+      __name:=gazebo_sim_depth_bridge \
+      > "$WORKSPACE_DIR/logs/gazebo_sim_depth_bridge.log" 2>&1 &
+    echo $! > "$WORKSPACE_DIR/logs/gazebo_sim_depth_bridge.pid"
+  fi
+}
+
+start_camera_bridges
+
 echo "Waiting for Gazebo controller_manager..."
 
 until rosservice list 2>/dev/null | grep -q "/a1_gazebo/controller_manager/list_controllers"
