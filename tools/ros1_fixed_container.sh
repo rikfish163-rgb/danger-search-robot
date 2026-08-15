@@ -68,7 +68,12 @@ status() {
 
 up() {
   check_paths
-  check_stale_simenv
+  # Once the pinned container exists, it is already isolated on its private
+  # network.  Only block creation of a new container; stale historical
+  # containers must not prevent routine reuse of the fixed one.
+  if ! container_exists; then
+    check_stale_simenv
+  fi
   docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || \
     docker network create --driver bridge "$NETWORK_NAME" >/dev/null
 
