@@ -84,6 +84,7 @@
   <depend>visualization_msgs</depend>
 
   <depend>rosgraph_msgs</depend>
+  <depend>danger_target_manager</depend>
 
   <export>
     <!-- Other tools can request additional information be placed here -->

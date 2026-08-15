@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -14,9 +15,11 @@ import rospy
 import tf2_ros
 
 from actionlib_msgs.msg import GoalStatus
-from geometry_msgs.msg import Point
+from danger_target_manager.msg import ConfirmedDanger
+from geometry_msgs.msg import Point, PoseStamped
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from nav_msgs.msg import OccupancyGrid
+from nav_msgs.srv import GetPlan
 from std_msgs.msg import Bool, String
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from visualization_msgs.msg import Marker, MarkerArray
@@ -67,10 +70,41 @@ class CorridorRoomExplorer:
 
         # ROS interfaces
         self.map_topic = rospy.get_param("~map_topic", "/map_confirmed")
-        self.global_frame = rospy.get_param("~global_frame", "map_level")
         self.base_frame = rospy.get_param("~base_frame", "body")
         self.action_name = rospy.get_param("~move_base_action", "/move_base")
         self.dry_run = bool(rospy.get_param("~dry_run", True))
+        self.global_frame = rospy.get_param("~global_frame", "world")
+        self.require_mapping_health = bool(
+            rospy.get_param("~require_mapping_health", True)
+        )
+        self.mapping_health_topic = rospy.get_param(
+            "~mapping_health_topic", "/mapping_healthy"
+        )
+        self.mapping_health_timeout = float(
+            rospy.get_param("~mapping_health_timeout", 2.5)
+        )
+        self.map_max_age = float(
+            rospy.get_param("~map_max_age", 1.5)
+        )
+        self.map_future_tolerance = float(
+            rospy.get_param("~map_future_tolerance", 0.25)
+        )
+
+        # A real mission must not finish on an empty frontier list. These
+        # gates are deliberately configurable because the same node is used
+        # for smoke tests and for the four-room competition floor.
+        self.required_room_zones = int(
+            rospy.get_param("~required_room_zones", 4)
+        )
+        self.require_danger_confirmation = bool(
+            rospy.get_param("~require_danger_confirmation", True)
+        )
+        self.minimum_confirmed_dangers = int(
+            rospy.get_param("~minimum_confirmed_dangers", 1)
+        )
+        self.danger_topic = rospy.get_param(
+            "~danger_topic", "/confirmed_danger"
+        )
 
         # Map interpretation
         self.occupied_threshold = int(
@@ -242,6 +276,18 @@ class CorridorRoomExplorer:
         self.scan_pause = float(
             rospy.get_param("~scan_pause", 1.5)
         )
+        self.require_make_plan = bool(
+            rospy.get_param("~require_make_plan", True)
+        )
+        self.plan_service_name = rospy.get_param(
+            "~plan_service", "/move_base/make_plan"
+        )
+        self.plan_tolerance = float(
+            rospy.get_param("~plan_tolerance", 0.25)
+        )
+        self.navigation_retry_cooldown = float(
+            rospy.get_param("~navigation_retry_cooldown", 3.0)
+        )
 
         # TF and move_base
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(20.0))
@@ -261,6 +307,10 @@ class CorridorRoomExplorer:
         self.map_origin_x = 0.0
         self.map_origin_y = 0.0
         self.map_origin_yaw = 0.0
+        self.last_map_received_wall: Optional[float] = None
+        self.mapping_health_received = False
+        self.mapping_health_ok = False
+        self.mapping_health_received_wall: Optional[float] = None
 
         # Mission state
         self.phase = "AUTO_AXIS_ESTIMATION"
@@ -287,6 +337,8 @@ class CorridorRoomExplorer:
         self.scan_position: Optional[Tuple[float, float]] = None
         self.scan_zone_id = ""
         self.scan_wait_until = rospy.Time(0)
+        self.navigation_blocked_until = rospy.Time(0)
+        self.confirmed_danger_ids: Set[int] = set()
 
         self.completed_zones: Set[str] = set()
         self.failed_zones: Dict[str, int] = {}
@@ -304,6 +356,18 @@ class CorridorRoomExplorer:
         )
         self.marker_pub = rospy.Publisher(
             "~markers", MarkerArray, queue_size=1, latch=True
+        )
+        self.mapping_health_sub = rospy.Subscriber(
+            self.mapping_health_topic,
+            Bool,
+            self.mapping_health_callback,
+            queue_size=1,
+        )
+        self.danger_sub = rospy.Subscriber(
+            self.danger_topic,
+            ConfirmedDanger,
+            self.danger_callback,
+            queue_size=20,
         )
 
         rospy.Subscriber(
@@ -329,6 +393,7 @@ class CorridorRoomExplorer:
         )
 
         self.publish_status("WAITING_FOR_MAP")
+        self.finished_pub.publish(Bool(data=False))
         rospy.loginfo(
             "[corridor_room_explorer] started dry_run=%s map=%s "
             "frame=%s base=%s automatic_axis=true",
@@ -349,7 +414,59 @@ class CorridorRoomExplorer:
     def publish_status(self, text: str) -> None:
         self.status_pub.publish(String(data=text))
 
+    def mapping_health_callback(self, message: Bool) -> None:
+        self.mapping_health_received = True
+        self.mapping_health_ok = bool(message.data)
+        self.mapping_health_received_wall = time.monotonic()
+
+    def danger_callback(self, message: ConfirmedDanger) -> None:
+        # The target manager already performs temporal/spatial confirmation.
+        # The explorer only needs a monotonic evidence count for its finish
+        # gate; repeated publications of one track remain idempotent.
+        self.confirmed_danger_ids.add(int(message.track_id))
+
+    def mapping_health_ready(self) -> bool:
+        if not self.require_mapping_health:
+            return True
+        if not self.mapping_health_received or not self.mapping_health_ok:
+            return False
+        if self.mapping_health_received_wall is None:
+            return False
+        return (
+            time.monotonic() - self.mapping_health_received_wall
+            <= self.mapping_health_timeout
+        )
+
+    def map_is_fresh(self, message: OccupancyGrid) -> bool:
+        stamp = message.header.stamp
+        now = rospy.Time.now()
+        if stamp.is_zero() or now.is_zero():
+            return False
+        age = (now - stamp).to_sec()
+        return (
+            math.isfinite(age)
+            and age <= self.map_max_age
+            and age >= -self.map_future_tolerance
+        )
+
     def map_callback(self, msg: OccupancyGrid) -> None:
+        expected_frame = self.global_frame.strip().lstrip("/")
+        actual_frame = msg.header.frame_id.strip().lstrip("/")
+        if expected_frame and actual_frame != expected_frame:
+            rospy.logwarn_throttle(
+                3.0,
+                "[corridor_room_explorer] rejecting map frame=%s expected=%s",
+                actual_frame or "<empty>",
+                expected_frame,
+            )
+            return
+        if not self.map_is_fresh(msg):
+            rospy.logwarn_throttle(
+                3.0,
+                "[corridor_room_explorer] rejecting stale/future map stamp",
+            )
+            return
+
         width = int(msg.info.width)
         height = int(msg.info.height)
         resolution = float(msg.info.resolution)
@@ -373,6 +490,9 @@ class CorridorRoomExplorer:
             or width != self.map_width
             or height != self.map_height
             or abs(resolution - self.map_resolution) > 1e-9
+            or abs(msg.info.origin.position.x - self.map_origin_x) > 1e-6
+            or abs(msg.info.origin.position.y - self.map_origin_y) > 1e-6
+            or self.angle_difference(origin_yaw, self.map_origin_yaw) > 1e-6
         )
 
         self.map_msg = msg
@@ -383,6 +503,7 @@ class CorridorRoomExplorer:
         self.map_origin_x = msg.info.origin.position.x
         self.map_origin_y = msg.info.origin.position.y
         self.map_origin_yaw = origin_yaw
+        self.last_map_received_wall = time.monotonic()
 
         if geometry_changed:
             self.covered = np.zeros(
@@ -393,6 +514,12 @@ class CorridorRoomExplorer:
             self.axis_preview = None
             self.mission_origin = None
             self.phase = "AUTO_AXIS_ESTIMATION"
+            self.completed_zones.clear()
+            self.failed_zones.clear()
+            self.blacklist.clear()
+            self.current_goal = None
+            self.scan_position = None
+            self.scan_queue = []
             rospy.loginfo(
                 "[corridor_room_explorer] map geometry %dx%d res=%.3f",
                 width,
@@ -1618,7 +1745,76 @@ class CorridorRoomExplorer:
 
         self.marker_pub.publish(markers)
 
-    def send_candidate(self, candidate: Candidate) -> None:
+    def candidate_goal(self, candidate: Candidate) -> MoveBaseGoal:
+        goal = MoveBaseGoal()
+        goal.target_pose.header.frame_id = self.global_frame
+        goal.target_pose.header.stamp = rospy.Time.now()
+        goal.target_pose.pose.position.x = candidate.x
+        goal.target_pose.pose.position.y = candidate.y
+
+        quaternion = quaternion_from_euler(0.0, 0.0, candidate.yaw)
+        goal.target_pose.pose.orientation.x = quaternion[0]
+        goal.target_pose.pose.orientation.y = quaternion[1]
+        goal.target_pose.pose.orientation.z = quaternion[2]
+        goal.target_pose.pose.orientation.w = quaternion[3]
+        return goal
+
+    def candidate_has_plan(
+        self,
+        candidate: Candidate,
+        robot_pose: Optional[Tuple[float, float, float]],
+    ) -> bool:
+        if self.dry_run or not self.require_make_plan:
+            return True
+        if robot_pose is None:
+            self.publish_status("WAITING_FOR_NAVIGATION_TF")
+            return False
+        try:
+            rospy.wait_for_service(
+                self.plan_service_name, timeout=0.25
+            )
+            plan_service = rospy.ServiceProxy(
+                self.plan_service_name, GetPlan
+            )
+            start = PoseStamped()
+            start.header.frame_id = self.global_frame
+            start.header.stamp = rospy.Time.now()
+            start.pose.position.x = robot_pose[0]
+            start.pose.position.y = robot_pose[1]
+            start_quaternion = quaternion_from_euler(0.0, 0.0, robot_pose[2])
+            start.pose.orientation.x = start_quaternion[0]
+            start.pose.orientation.y = start_quaternion[1]
+            start.pose.orientation.z = start_quaternion[2]
+            start.pose.orientation.w = start_quaternion[3]
+            goal = self.candidate_goal(candidate).target_pose
+            response = plan_service(start, goal, self.plan_tolerance)
+            if len(response.plan.poses) < 2:
+                rospy.logwarn(
+                    "[corridor_room_explorer] no plan for %s at (%.2f, %.2f)",
+                    candidate.kind,
+                    candidate.x,
+                    candidate.y,
+                )
+                return False
+            return True
+        except (rospy.ROSException, rospy.ServiceException) as exc:
+            self.navigation_blocked_until = (
+                rospy.Time.now()
+                + rospy.Duration(self.navigation_retry_cooldown)
+            )
+            rospy.logwarn_throttle(
+                3.0,
+                "[corridor_room_explorer] plan service unavailable: %s",
+                str(exc),
+            )
+            self.publish_status("WAITING_FOR_PLAN_SERVICE")
+            return False
+
+    def send_candidate(
+        self,
+        candidate: Candidate,
+        robot_pose: Optional[Tuple[float, float, float]] = None,
+    ) -> bool:
         self.last_selected = candidate
 
         rospy.loginfo(
@@ -1639,22 +1835,21 @@ class CorridorRoomExplorer:
             self.publish_status(
                 f"DRY_RUN_{self.phase}_{candidate.kind}"
             )
-            return
+            return True
 
-        goal = MoveBaseGoal()
-        goal.target_pose.header.frame_id = self.global_frame
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.pose.position.x = candidate.x
-        goal.target_pose.pose.position.y = candidate.y
+        if rospy.Time.now() < self.navigation_blocked_until:
+            self.publish_status("WAITING_FOR_NAVIGATION")
+            return False
+        if not self.candidate_has_plan(candidate, robot_pose):
+            self.add_blacklist(candidate.x, candidate.y)
+            if candidate.zone_id:
+                self.failed_zones[candidate.zone_id] = (
+                    self.failed_zones.get(candidate.zone_id, 0) + 1
+                )
+            self.publish_status("GOAL_REJECTED_NO_PLAN")
+            return False
 
-        quaternion = quaternion_from_euler(
-            0.0, 0.0, candidate.yaw
-        )
-        goal.target_pose.pose.orientation.x = quaternion[0]
-        goal.target_pose.pose.orientation.y = quaternion[1]
-        goal.target_pose.pose.orientation.z = quaternion[2]
-        goal.target_pose.pose.orientation.w = quaternion[3]
-
+        goal = self.candidate_goal(candidate)
         self.client.send_goal(goal)
 
         self.current_goal = candidate
@@ -1664,6 +1859,7 @@ class CorridorRoomExplorer:
         self.publish_status(
             f"NAVIGATING_{candidate.kind}"
         )
+        return True
 
     def start_room_scan(
         self,
@@ -1707,7 +1903,28 @@ class CorridorRoomExplorer:
             lateral=0.0,
             zone_id=self.scan_zone_id,
         )
-        self.send_candidate(candidate)
+        if not self.send_candidate(candidate, self.get_robot_pose()):
+            if self.failed_zones.get(self.scan_zone_id, 0) >= 3:
+                rospy.logwarn(
+                    "[corridor_room_explorer] aborting room scan after "
+                    "repeated plan failures: %s",
+                    self.scan_zone_id,
+                )
+                self.scan_position = None
+                self.scan_zone_id = ""
+                self.scan_queue = []
+                self.publish_status("ROOM_SCAN_ABORTED_NO_PLAN")
+            else:
+                self.scan_queue.insert(0, yaw)
+
+    def finish_evidence_ready(self) -> bool:
+        rooms_ready = len(self.completed_zones) >= self.required_room_zones
+        dangers_ready = (
+            not self.require_danger_confirmation
+            or len(self.confirmed_danger_ids)
+            >= self.minimum_confirmed_dangers
+        )
+        return rooms_ready and dangers_ready
 
     def handle_current_goal(
         self,
@@ -1820,6 +2037,13 @@ class CorridorRoomExplorer:
         if self.finished:
             return
 
+        if not self.mapping_health_ready():
+            if self.current_goal is not None and not self.dry_run:
+                self.client.cancel_goal()
+                self.current_goal = None
+            self.publish_status("WAITING_FOR_MAPPING_HEALTH")
+            return
+
         if self.grid is None or self.covered is None:
             self.publish_status("WAITING_FOR_MAP")
             return
@@ -1922,7 +2146,7 @@ class CorridorRoomExplorer:
                     )
             else:
                 self.corridor_empty_cycles = 0
-                self.send_candidate(selected)
+                self.send_candidate(selected, robot_pose)
 
         elif self.phase == "ROOM_SWEEP":
             selected = self.select_room_candidate(
@@ -1944,19 +2168,29 @@ class CorridorRoomExplorer:
                     self.room_empty_cycles
                     >= self.room_empty_cycles_to_finish
                 ):
-                    self.phase = "FINISHED"
-                    self.finished = True
-                    self.finished_pub.publish(
-                        Bool(data=True)
-                    )
-                    self.publish_status("FINISHED")
-                    rospy.loginfo(
-                        "[corridor_room_explorer] "
-                        "exploration finished"
-                    )
+                    if self.finish_evidence_ready():
+                        self.phase = "FINISHED"
+                        self.finished = True
+                        self.finished_pub.publish(Bool(data=True))
+                        self.publish_status("FINISHED")
+                        rospy.loginfo(
+                            "[corridor_room_explorer] exploration finished "
+                            "rooms=%d dangers=%d",
+                            len(self.completed_zones),
+                            len(self.confirmed_danger_ids),
+                        )
+                    else:
+                        self.publish_status(
+                            "ROOM_SWEEP_WAITING_FOR_EVIDENCE_"
+                            f"rooms={len(self.completed_zones)}/"
+                            f"{self.required_room_zones}_dangers="
+                            f"{len(self.confirmed_danger_ids)}/"
+                            f"{self.minimum_confirmed_dangers}"
+                        )
+                        self.room_empty_cycles = 0
             else:
                 self.room_empty_cycles = 0
-                self.send_candidate(selected)
+                self.send_candidate(selected, robot_pose)
 
         self.publish_markers(robot_pose, selected)
 

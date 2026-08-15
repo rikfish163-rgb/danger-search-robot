@@ -1,12 +1,26 @@
 # Fully automatic corridor-first, room-second exploration
 
 map_topic: /map_confirmed
-global_frame: map_level
+global_frame: world
 base_frame: body
 move_base_action: /move_base
 
 # Always test with dry_run=true first.
 dry_run: true
+
+# Fail closed when the pointcloud -> map chain is stale or waiting for TF.
+require_mapping_health: true
+mapping_health_topic: /mapping_healthy
+mapping_health_timeout: 2.5
+map_max_age: 1.5
+map_future_tolerance: 0.25
+
+# A mission can finish only after the configured room zones have been scanned
+# and at least one target-manager confirmation exists.
+required_room_zones: 4
+require_danger_confirmation: true
+minimum_confirmed_dangers: 1
+danger_topic: /confirmed_danger
 
 occupied_threshold: 50
 min_goal_clearance: 0.38
@@ -100,3 +114,7 @@ blacklist_radius: 1.00
 
 plan_period: 1.0
 scan_pause: 1.5
+require_make_plan: true
+plan_service: /move_base/make_plan
+plan_tolerance: 0.25
+navigation_retry_cooldown: 3.0
