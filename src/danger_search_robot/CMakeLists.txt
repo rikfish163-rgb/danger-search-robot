@@ -268,6 +268,7 @@ catkin_install_python(PROGRAMS
 
 catkin_install_python(PROGRAMS
   exploration/graph_nbv/scripts/graph_nbv_stage_b31_manual_gate_node.py
+  exploration/graph_nbv/scripts/graph_nbv_policy.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
@@ -275,4 +276,3 @@ catkin_install_python(PROGRAMS
   scripts/teb_infeasible_forward_override.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
-

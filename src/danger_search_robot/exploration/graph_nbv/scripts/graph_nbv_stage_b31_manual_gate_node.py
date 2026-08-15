@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import heapq
+import importlib.util
+import json
 import math
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -22,6 +25,35 @@ from nav_msgs.srv import GetPlan
 from std_msgs.msg import Bool, String
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from visualization_msgs.msg import Marker, MarkerArray
+
+try:
+    from graph_nbv_policy import (
+        failure_budget_exhausted,
+        freshness_age,
+        gate_exhaustion_reached,
+        pose_is_close,
+        pose_is_reasonable,
+        pose_samples_stable,
+    )
+except ImportError:
+    # catkin's devel relay executes this source file while keeping the relay
+    # directory on sys.path. Load the sibling helper explicitly so a rebuild
+    # is not required just to start the node after a source-only update.
+    _policy_path = Path(__file__).resolve().with_name("graph_nbv_policy.py")
+    _policy_spec = importlib.util.spec_from_file_location(
+        "graph_nbv_policy",
+        str(_policy_path),
+    )
+    if _policy_spec is None or _policy_spec.loader is None:
+        raise
+    _policy_module = importlib.util.module_from_spec(_policy_spec)
+    _policy_spec.loader.exec_module(_policy_module)
+    failure_budget_exhausted = _policy_module.failure_budget_exhausted
+    freshness_age = _policy_module.freshness_age
+    gate_exhaustion_reached = _policy_module.gate_exhaustion_reached
+    pose_is_close = _policy_module.pose_is_close
+    pose_is_reasonable = _policy_module.pose_is_reasonable
+    pose_samples_stable = _policy_module.pose_samples_stable
 
 
 @dataclass
@@ -155,6 +187,22 @@ class GraphNBVStageB31ManualGate:
             rospy.get_param(
                 "~behind_gate_penalty_after_unlock", 10.0
             )
+        )
+        self.unlock_gate_on_exhaustion = bool(
+            rospy.get_param("~unlock_gate_on_exhaustion", True)
+        )
+        self.manual_gate_stability_samples = max(
+            2,
+            int(rospy.get_param("~manual_gate_stability_samples", 5)),
+        )
+        self.manual_gate_stability_position = float(
+            rospy.get_param("~manual_gate_stability_position", 0.12)
+        )
+        self.manual_gate_stability_angle = math.radians(
+            float(rospy.get_param("~manual_gate_stability_angle_deg", 8.0))
+        )
+        self.manual_gate_wait_timeout = float(
+            rospy.get_param("~manual_gate_wait_timeout", 30.0)
         )
 
         self.occupied_threshold = int(
@@ -290,6 +338,26 @@ class GraphNBVStageB31ManualGate:
         self.plan_period = float(
             rospy.get_param("~plan_period", 1.50)
         )
+        self.goal_recovery_pause = float(
+            rospy.get_param("~goal_recovery_pause", 2.0)
+        )
+        self.max_consecutive_goal_failures = max(
+            1,
+            int(rospy.get_param("~max_consecutive_goal_failures", 5)),
+        )
+        self.map_freshness_timeout = float(
+            rospy.get_param("~map_freshness_timeout", 5.0)
+        )
+        self.tf_freshness_timeout = float(
+            rospy.get_param("~tf_freshness_timeout", 2.0)
+        )
+        self.health_failure_limit = max(
+            1,
+            int(rospy.get_param("~health_failure_limit", 3)),
+        )
+        self.max_pose_abs = float(
+            rospy.get_param("~max_pose_abs", 200.0)
+        )
 
         self.tf_buffer = tf2_ros.Buffer(
             cache_time=rospy.Duration(20.0)
@@ -322,10 +390,37 @@ class GraphNBVStageB31ManualGate:
         self.current_goal_start = rospy.Time(0)
         self.last_goal_distance = float("inf")
         self.last_progress_time = rospy.Time(0)
+        self.current_goal_id = ""
+        self.goal_sequence = 0
+        self.last_goal_id = ""
+        self.last_goal_result = ""
+        self.last_goal_reason = ""
+        self.last_goal_elapsed = 0.0
+        self.total_goals_sent = 0
+        self.total_goal_successes = 0
+        self.total_goal_failures = 0
+        self.consecutive_goal_failures = 0
+        self.recovery_until = rospy.Time(0)
+        self.recovery_reason = ""
 
         self.blacklist: List[Tuple[float, float]] = []
         self.global_empty_cycles = 0
         self.finished = False
+        self.aborted = False
+        self.exploration_state = "WAITING_FOR_MAP"
+        self.state_changed_at = rospy.Time.now()
+        self.last_status_text = ""
+        self.last_error = ""
+        self.last_map_stamp = rospy.Time(0)
+        self.last_map_received_at = rospy.Time(0)
+        self.last_tf_stamp = rospy.Time(0)
+        self.last_tf_received_at = rospy.Time(0)
+        self.last_robot_pose: Optional[Tuple[float, float, float]] = None
+        self.health_failure_count = 0
+        self.health_reason = ""
+        self.manual_gate_wait_start = rospy.Time(0)
+        self.manual_gate_samples: List[Tuple[float, float, float]] = []
+        self.gate_unlock_count = 0
 
         if self.manual_gate_enabled:
             self.initial_state = "WAITING_MANUAL_GATE"
@@ -359,6 +454,9 @@ class GraphNBVStageB31ManualGate:
 
         self.status_pub = rospy.Publisher(
             "~status", String, queue_size=1, latch=True
+        )
+        self.runtime_status_pub = rospy.Publisher(
+            "~runtime_status", String, queue_size=1, latch=True
         )
         self.mode_pub = rospy.Publisher(
             "~mode", String, queue_size=1, latch=True
@@ -419,6 +517,7 @@ class GraphNBVStageB31ManualGate:
             self.timer_callback,
         )
 
+        self.finished_pub.publish(Bool(data=False))
         self.publish_status("WAITING_FOR_MAP")
         if self.manual_gate_enabled:
             self.mode_pub.publish(String(data="WAITING_MANUAL_GATE"))
@@ -436,7 +535,251 @@ class GraphNBVStageB31ManualGate:
         )
 
     def publish_status(self, text: str) -> None:
+        self.last_status_text = text
         self.status_pub.publish(String(data=text))
+        self.publish_runtime_status()
+
+    @staticmethod
+    def _finite_or_none(value: float) -> Optional[float]:
+        if value is None or not math.isfinite(float(value)):
+            return None
+        return float(value)
+
+    @staticmethod
+    def _time_age(
+        stamp: rospy.Time,
+        now: rospy.Time,
+    ) -> Optional[float]:
+        if stamp is None or stamp.to_sec() <= 0.0 or now.to_sec() <= 0.0:
+            return None
+        return max(0.0, (now - stamp).to_sec())
+
+    def publish_runtime_status(self) -> None:
+        """Publish a bounded, machine-readable mission heartbeat."""
+
+        now = rospy.Time.now()
+        goal_xy = self.current_goal_xy()
+        map_stamp_age = self._time_age(self.last_map_stamp, now)
+        map_receive_age = self._time_age(
+            self.last_map_received_at, now
+        )
+        map_age = freshness_age(
+            self.last_map_stamp.to_sec(),
+            self.last_map_received_at.to_sec(),
+            now.to_sec(),
+        )
+        tf_stamp_age = self._time_age(self.last_tf_stamp, now)
+        tf_receive_age = self._time_age(
+            self.last_tf_received_at, now
+        )
+        tf_age = freshness_age(
+            self.last_tf_stamp.to_sec(),
+            self.last_tf_received_at.to_sec(),
+            now.to_sec(),
+        )
+        goal_elapsed = 0.0
+        if self.current_goal_start.to_sec() > 0.0 and now.to_sec() > 0.0:
+            goal_elapsed = max(
+                0.0,
+                (now - self.current_goal_start).to_sec(),
+            )
+
+        recovery_remaining = 0.0
+        if self.recovery_until.to_sec() > 0.0 and now.to_sec() > 0.0:
+            recovery_remaining = max(
+                0.0,
+                (self.recovery_until - now).to_sec(),
+            )
+
+        payload = {
+            "schema": "graph_nbv_runtime_v1",
+            "ros_time": float(now.to_sec()),
+            "state": self.exploration_state,
+            "state_age": self._time_age(self.state_changed_at, now),
+            "status": self.last_status_text,
+            "last_error": self.last_error or None,
+            "initial_state": self.initial_state,
+            "initial_complete": bool(self.initial_complete),
+            "finished": bool(self.finished and not self.aborted),
+            "aborted": bool(self.aborted),
+            "gate": {
+                "locked": bool(self.gate_locked),
+                "forward_empty_cycles": int(self.forward_empty_cycles),
+                "unlock_count": int(self.gate_unlock_count),
+                "origin": list(self.gate_origin)
+                if self.gate_origin is not None
+                else None,
+                "forward": list(self.gate_forward)
+                if self.gate_forward is not None
+                else None,
+            },
+            "goal": {
+                "id": self.current_goal_id or None,
+                "kind": self.current_goal_kind or None,
+                "xy": list(goal_xy) if goal_xy is not None else None,
+                "elapsed": float(goal_elapsed),
+                "distance": self._finite_or_none(self.last_goal_distance),
+                "last_id": self.last_goal_id or None,
+                "last_result": self.last_goal_result or None,
+                "last_reason": self.last_goal_reason or None,
+                "last_elapsed": float(self.last_goal_elapsed),
+            },
+            "health": {
+                "map_age": map_age,
+                "map_stamp_age": map_stamp_age,
+                "map_receive_age": map_receive_age,
+                "tf_age": tf_age,
+                "tf_stamp_age": tf_stamp_age,
+                "tf_receive_age": tf_receive_age,
+                "failure_count": int(self.health_failure_count),
+                "reason": self.health_reason or None,
+            },
+            "recovery": {
+                "reason": self.recovery_reason or None,
+                "remaining": float(recovery_remaining),
+            },
+            "counters": {
+                "goals_sent": int(self.total_goals_sent),
+                "goal_successes": int(self.total_goal_successes),
+                "goal_failures": int(self.total_goal_failures),
+                "consecutive_goal_failures": int(
+                    self.consecutive_goal_failures
+                ),
+                "blacklist_size": len(self.blacklist),
+                "global_empty_cycles": int(self.global_empty_cycles),
+            },
+            "map": {
+                "width": int(self.map_width),
+                "height": int(self.map_height),
+                "resolution": float(self.resolution),
+            },
+            "robot_pose": list(self.last_robot_pose)
+            if self.last_robot_pose is not None
+            else None,
+        }
+        self.runtime_status_pub.publish(
+            String(
+                data=json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
+        )
+
+    def set_exploration_state(self, state: str) -> None:
+        if state != self.exploration_state:
+            previous = self.exploration_state
+            self.exploration_state = state
+            self.state_changed_at = rospy.Time.now()
+            rospy.loginfo(
+                "[graph_nbv] state %s -> %s",
+                previous,
+                state,
+            )
+        self.publish_runtime_status()
+
+    def finish_exploration(self, reason: str) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        self.aborted = False
+        self.stop_initial_motion()
+        try:
+            self.client.cancel_goal()
+        except Exception:
+            pass
+        self.finished_pub.publish(Bool(data=True))
+        self.mode_pub.publish(String(data="FINISHED"))
+        self.gate_state_pub.publish(String(data="FINISHED"))
+        self.set_exploration_state("FINISHED")
+        self.publish_status(reason)
+        rospy.loginfo("[graph_nbv] exploration finished: %s", reason)
+
+    def abort_safely(self, reason: str) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        self.aborted = True
+        self.last_error = reason
+        self.stop_initial_motion()
+        try:
+            self.client.cancel_goal()
+        except Exception:
+            pass
+        self.clear_current_goal()
+        self.finished_pub.publish(Bool(data=False))
+        self.mode_pub.publish(String(data="ABORTED_SAFE"))
+        self.gate_state_pub.publish(String(data="ABORTED_SAFE"))
+        self.set_exploration_state("ABORTED_SAFE")
+        self.publish_status("ABORTED_SAFE_" + reason)
+        rospy.logerr("[graph_nbv] safe abort: %s", reason)
+
+    def runtime_health_reason(self, now: rospy.Time) -> Optional[str]:
+        if not pose_is_reasonable(
+            self.last_robot_pose,
+            self.max_pose_abs,
+        ) and self.last_robot_pose is not None:
+            return "INVALID_TF_POSE"
+
+        if self.map_freshness_timeout > 0.0:
+            map_age = freshness_age(
+                self.last_map_stamp.to_sec(),
+                self.last_map_received_at.to_sec(),
+                now.to_sec(),
+            )
+            if (
+                map_age is not None
+                and map_age > self.map_freshness_timeout
+            ):
+                return "STALE_MAP"
+
+        if self.tf_freshness_timeout > 0.0:
+            tf_age = freshness_age(
+                self.last_tf_stamp.to_sec(),
+                self.last_tf_received_at.to_sec(),
+                now.to_sec(),
+            )
+            if (
+                tf_age is not None
+                and tf_age > self.tf_freshness_timeout
+            ):
+                return "STALE_TF"
+
+        return None
+
+    def handle_health_degraded(self, reason: str) -> None:
+        now = rospy.Time.now()
+        self.health_failure_count += 1
+        self.health_reason = reason
+        if self.exploration_state != "HEALTH_DEGRADED":
+            if self.current_goal_xy() is not None:
+                try:
+                    self.client.cancel_goal()
+                except Exception:
+                    pass
+                self.clear_current_goal()
+            self.recovery_reason = reason
+            self.recovery_until = now + rospy.Duration(
+                max(0.0, self.goal_recovery_pause)
+            )
+            self.set_exploration_state("HEALTH_DEGRADED")
+            self.publish_status("HEALTH_DEGRADED_" + reason)
+
+        if self.health_failure_count >= self.health_failure_limit:
+            self.abort_safely(reason)
+
+    def recover_health(self) -> None:
+        if self.health_failure_count == 0 and self.health_reason == "":
+            return
+        previous_reason = self.health_reason
+        self.health_failure_count = 0
+        self.health_reason = ""
+        self.recovery_reason = ""
+        self.recovery_until = rospy.Time(0)
+        if self.exploration_state == "HEALTH_DEGRADED":
+            self.set_exploration_state("WAITING_FOR_NEXT_GOAL")
+            self.publish_status("HEALTH_RECOVERED_" + previous_reason)
 
     @staticmethod
     def normalize_angle(angle: float) -> float:
@@ -466,6 +809,9 @@ class GraphNBVStageB31ManualGate:
 
         translation = transform.transform.translation
         rotation = transform.transform.rotation
+        now = rospy.Time.now()
+        self.last_tf_stamp = transform.header.stamp
+        self.last_tf_received_at = now
         _, _, yaw = euler_from_quaternion(
             [rotation.x, rotation.y, rotation.z, rotation.w]
         )
@@ -524,6 +870,24 @@ class GraphNBVStageB31ManualGate:
         if self.gate_progress(x, y) >= 0.0:
             return 0.0
         return self.behind_gate_penalty_after_unlock
+
+    def unlock_forward_gate(self) -> None:
+        if not self.gate_locked:
+            return
+        self.gate_locked = False
+        self.gate_unlock_count += 1
+        self.forward_empty_cycles = 0
+        self.gate_state_pub.publish(
+            String(data="UNLOCKED_AFTER_FORWARD_EXHAUSTION")
+        )
+        self.mode_pub.publish(String(data="GLOBAL_RELOCATION"))
+        self.set_exploration_state("RELOCATING_GLOBAL")
+        self.publish_status("FORWARD_REGION_EXHAUSTED_GATE_UNLOCKED")
+        rospy.loginfo(
+            "[graph_nbv] forward region exhausted for %d stable cycles; "
+            "unlocking gate for global relocation",
+            self.forward_finish_stable_cycles,
+        )
 
     def initial_obstacle_ahead(
         self,
@@ -596,6 +960,7 @@ class GraphNBVStageB31ManualGate:
 
         self.gate_state_pub.publish(String(data="FORWARD_REGION_LOCKED"))
         self.mode_pub.publish(String(data="FORWARD_REGION_LOCKED"))
+        self.set_exploration_state("EXPLORING_LOCAL")
         self.publish_status("INITIAL_FORWARD_REACHED")
 
         rospy.loginfo(
@@ -620,9 +985,69 @@ class GraphNBVStageB31ManualGate:
         self,
         robot_pose: Tuple[float, float, float],
     ) -> None:
+        now = rospy.Time.now()
+        if self.manual_gate_wait_start.to_sec() <= 0.0:
+            self.manual_gate_wait_start = now
+
+        if (
+            self.manual_gate_wait_timeout > 0.0
+            and now.to_sec() > 0.0
+            and (
+                now - self.manual_gate_wait_start
+            ).to_sec() > self.manual_gate_wait_timeout
+        ):
+            self.abort_safely("MANUAL_GATE_UNSTABLE")
+            return
+
+        if self.manual_gate_samples and not pose_is_close(
+            self.manual_gate_samples[-1],
+            robot_pose,
+            self.manual_gate_stability_position,
+            self.manual_gate_stability_angle,
+        ):
+            self.manual_gate_samples = [robot_pose]
+        else:
+            self.manual_gate_samples.append(robot_pose)
+
+        self.manual_gate_samples = self.manual_gate_samples[
+            -self.manual_gate_stability_samples:
+        ]
+        self.set_exploration_state("WAITING_MANUAL_GATE")
+        self.publish_status(
+            "WAITING_MANUAL_GATE_STABILITY_%d_OF_%d"
+            % (
+                len(self.manual_gate_samples),
+                self.manual_gate_stability_samples,
+            )
+        )
+        if (
+            len(self.manual_gate_samples)
+            < self.manual_gate_stability_samples
+            or not pose_samples_stable(
+                self.manual_gate_samples,
+                self.manual_gate_stability_position,
+                self.manual_gate_stability_angle,
+            )
+        ):
+            return
+
+        mean_x = sum(pose[0] for pose in self.manual_gate_samples) / len(
+            self.manual_gate_samples
+        )
+        mean_y = sum(pose[1] for pose in self.manual_gate_samples) / len(
+            self.manual_gate_samples
+        )
+        mean_cos = sum(
+            math.cos(pose[2]) for pose in self.manual_gate_samples
+        ) / len(self.manual_gate_samples)
+        mean_sin = sum(
+            math.sin(pose[2]) for pose in self.manual_gate_samples
+        ) / len(self.manual_gate_samples)
+        stable_yaw = math.atan2(mean_sin, mean_cos)
+
         if self.manual_gate_use_robot_heading:
-            forward_x = math.cos(robot_pose[2])
-            forward_y = math.sin(robot_pose[2])
+            forward_x = math.cos(stable_yaw)
+            forward_y = math.sin(stable_yaw)
         else:
             norm = math.hypot(
                 self.manual_gate_forward_x,
@@ -637,7 +1062,7 @@ class GraphNBVStageB31ManualGate:
             forward_x = self.manual_gate_forward_x / norm
             forward_y = self.manual_gate_forward_y / norm
 
-        self.gate_origin = (robot_pose[0], robot_pose[1])
+        self.gate_origin = (mean_x, mean_y)
         self.gate_forward = (forward_x, forward_y)
         self.gate_locked = True
         self.initial_complete = True
@@ -651,6 +1076,7 @@ class GraphNBVStageB31ManualGate:
         self.mode_pub.publish(
             String(data="FORWARD_REGION_LOCKED")
         )
+        self.set_exploration_state("EXPLORING_LOCAL")
         self.publish_status("MANUAL_GATE_INITIALIZED")
 
         rospy.loginfo(
@@ -660,7 +1086,7 @@ class GraphNBVStageB31ManualGate:
             self.gate_origin[1],
             self.gate_forward[0],
             self.gate_forward[1],
-            robot_pose[2],
+            stable_yaw,
         )
 
     def handle_initial_forward(
@@ -801,6 +1227,8 @@ class GraphNBVStageB31ManualGate:
         self.origin_x = msg.info.origin.position.x
         self.origin_y = msg.info.origin.position.y
         self.origin_yaw = origin_yaw
+        self.last_map_stamp = msg.header.stamp
+        self.last_map_received_at = rospy.Time.now()
 
         if geometry_changed:
             self.covered = np.zeros(
@@ -813,6 +1241,7 @@ class GraphNBVStageB31ManualGate:
                 height,
                 resolution,
             )
+        self.publish_runtime_status()
 
     def get_robot_pose(
         self,
@@ -1251,6 +1680,86 @@ class GraphNBVStageB31ManualGate:
             for bx, by in self.blacklist
         )
 
+    def add_blacklist(self, x: float, y: float) -> None:
+        self.blacklist.append((x, y))
+        if len(self.blacklist) > 200:
+            self.blacklist = self.blacklist[-200:]
+
+    def begin_goal(self, kind: str) -> None:
+        self.goal_sequence += 1
+        self.current_goal_id = "%s-%04d" % (
+            kind.lower(),
+            self.goal_sequence,
+        )
+        self.last_goal_id = self.current_goal_id
+        self.last_goal_result = "ACTIVE"
+        self.last_goal_reason = ""
+        self.last_goal_elapsed = 0.0
+        self.total_goals_sent += 1
+        self.current_goal_start = rospy.Time.now()
+        self.last_progress_time = self.current_goal_start
+        self.last_goal_distance = float("inf")
+
+    def complete_current_goal(self, result: str, reason: str) -> str:
+        kind = self.current_goal_kind
+        now = rospy.Time.now()
+        elapsed = 0.0
+        if self.current_goal_start.to_sec() > 0.0 and now.to_sec() > 0.0:
+            elapsed = max(
+                0.0,
+                (now - self.current_goal_start).to_sec(),
+            )
+        self.last_goal_id = self.current_goal_id
+        self.last_goal_result = result
+        self.last_goal_reason = reason
+        self.last_goal_elapsed = elapsed
+        self.total_goal_successes += 1
+        self.consecutive_goal_failures = 0
+        self.clear_current_goal()
+        self.recovery_until = rospy.Time(0)
+        self.recovery_reason = ""
+        self.set_exploration_state("WAITING_FOR_NEXT_GOAL")
+        return kind
+
+    def fail_current_goal(self, reason: str) -> str:
+        kind = self.current_goal_kind
+        goal_xy = self.current_goal_xy()
+        now = rospy.Time.now()
+        elapsed = 0.0
+        if self.current_goal_start.to_sec() > 0.0 and now.to_sec() > 0.0:
+            elapsed = max(
+                0.0,
+                (now - self.current_goal_start).to_sec(),
+            )
+
+        try:
+            self.client.cancel_goal()
+        except Exception:
+            pass
+
+        if goal_xy is not None:
+            self.add_blacklist(goal_xy[0], goal_xy[1])
+        self.last_goal_id = self.current_goal_id
+        self.last_goal_result = "FAILED"
+        self.last_goal_reason = reason
+        self.last_goal_elapsed = elapsed
+        self.total_goal_failures += 1
+        self.consecutive_goal_failures += 1
+        self.clear_current_goal()
+        self.recovery_reason = reason
+        self.recovery_until = now + rospy.Duration(
+            max(0.0, self.goal_recovery_pause)
+        )
+        self.set_exploration_state("GOAL_RECOVERY")
+        self.publish_status("GOAL_RECOVERY_%s" % reason)
+
+        if failure_budget_exhausted(
+            self.consecutive_goal_failures,
+            self.max_consecutive_goal_failures,
+        ):
+            self.abort_safely("GOAL_FAILURE_BUDGET")
+        return kind
+
     def select_local_target(
         self,
         nodes: List[GraphNode],
@@ -1680,11 +2189,10 @@ class GraphNBVStageB31ManualGate:
         self.current_local_goal = node
         self.current_global_goal = None
         self.current_goal_kind = "LOCAL"
-        self.current_goal_start = rospy.Time.now()
-        self.last_progress_time = rospy.Time.now()
-        self.last_goal_distance = float("inf")
+        self.begin_goal("LOCAL")
 
         self.mode_pub.publish(String(data="LOCAL_NBV"))
+        self.set_exploration_state("EXPLORING_LOCAL")
         self.publish_status("NAVIGATING_LOCAL_VIEWPOINT")
 
     def send_global_goal(
@@ -1726,13 +2234,12 @@ class GraphNBVStageB31ManualGate:
         self.current_global_goal = target
         self.current_local_goal = None
         self.current_goal_kind = "GLOBAL"
-        self.current_goal_start = rospy.Time.now()
-        self.last_progress_time = rospy.Time.now()
-        self.last_goal_distance = float("inf")
+        self.begin_goal("GLOBAL")
 
         self.mode_pub.publish(
             String(data="GLOBAL_RELOCATION")
         )
+        self.set_exploration_state("RELOCATING_GLOBAL")
         self.publish_status(
             "NAVIGATING_GLOBAL_RELOCATION"
         )
@@ -1764,6 +2271,10 @@ class GraphNBVStageB31ManualGate:
         self.current_local_goal = None
         self.current_global_goal = None
         self.current_goal_kind = ""
+        self.current_goal_id = ""
+        self.current_goal_start = rospy.Time(0)
+        self.last_progress_time = rospy.Time(0)
+        self.last_goal_distance = float("inf")
 
     def handle_goal(
         self,
@@ -1798,7 +2309,10 @@ class GraphNBVStageB31ManualGate:
                     self.goal_reached_radius,
                 )
                 self.client.cancel_goal()
-                self.clear_current_goal()
+                self.complete_current_goal(
+                    "REACHED_RADIUS",
+                    "distance_within_goal_radius",
+                )
                 self.global_empty_cycles = 0
 
                 if completed_kind == "GLOBAL":
@@ -1840,19 +2354,18 @@ class GraphNBVStageB31ManualGate:
                     total_time,
                     no_progress_time,
                 )
-                self.client.cancel_goal()
-                self.blacklist.append(goal_xy)
-                self.clear_current_goal()
-                self.publish_status("GOAL_TIMEOUT")
+                self.fail_current_goal("TIMEOUT")
             return
 
         if state == GoalStatus.SUCCEEDED:
-            completed_kind = self.current_goal_kind
+            completed_kind = self.complete_current_goal(
+                "SUCCEEDED",
+                "action_succeeded",
+            )
             rospy.loginfo(
                 "[graph_nbv] %s goal reached",
                 completed_kind,
             )
-            self.clear_current_goal()
             self.global_empty_cycles = 0
 
             if completed_kind == "GLOBAL":
@@ -1880,9 +2393,7 @@ class GraphNBVStageB31ManualGate:
                 self.current_goal_kind,
                 state,
             )
-            self.blacklist.append(goal_xy)
-            self.clear_current_goal()
-            self.publish_status("GOAL_FAILED")
+            self.fail_current_goal("ACTION_%d" % state)
 
     def publish_markers(
         self,
@@ -2115,6 +2626,10 @@ class GraphNBVStageB31ManualGate:
             self.publish_status("WAITING_FOR_TF")
             return
 
+        if not pose_is_reasonable(robot_pose, self.max_pose_abs):
+            self.abort_safely("INVALID_TF_POSE")
+            return
+
         if self.manual_gate_enabled:
             self.initialize_manual_gate(robot_pose)
             return
@@ -2126,16 +2641,67 @@ class GraphNBVStageB31ManualGate:
             return
 
         if self.grid is None or self.covered is None:
+            self.set_exploration_state("WAITING_FOR_MAP")
             self.publish_status("WAITING_FOR_MAP")
             return
 
         robot_pose = self.get_robot_pose()
         if robot_pose is None:
-            self.publish_status("WAITING_FOR_TF")
+            if self.initial_complete:
+                self.handle_health_degraded("TF_UNAVAILABLE")
+            else:
+                self.set_exploration_state("WAITING_FOR_TF")
+                self.publish_status("WAITING_FOR_TF")
+            return
+
+        self.last_robot_pose = robot_pose
+        if not pose_is_reasonable(robot_pose, self.max_pose_abs):
+            if self.initial_complete:
+                self.handle_health_degraded("INVALID_TF_POSE")
+            else:
+                self.abort_safely("INVALID_TF_POSE")
             return
 
         if not self.initial_complete:
             return
+
+        now = rospy.Time.now()
+        health_reason = self.runtime_health_reason(now)
+        if health_reason is not None:
+            self.handle_health_degraded(health_reason)
+            return
+        self.recover_health()
+
+        if (
+            self.recovery_until.to_sec() > 0.0
+            and now.to_sec() > 0.0
+            and now < self.recovery_until
+        ):
+            if self.exploration_state != "HEALTH_DEGRADED":
+                self.set_exploration_state("GOAL_RECOVERY")
+            self.publish_status(
+                "RECOVERY_WAIT_%.1f" % (
+                    (self.recovery_until - now).to_sec(),
+                )
+            )
+            self.publish_markers(
+                self.last_nodes,
+                self.last_edges,
+                robot_pose,
+                self.last_local_selected,
+                self.last_global_selected,
+                self.last_global_frontiers,
+            )
+            return
+
+        if self.recovery_until.to_sec() > 0.0:
+            self.recovery_until = rospy.Time(0)
+            self.recovery_reason = ""
+            if self.exploration_state in (
+                "GOAL_RECOVERY",
+                "HEALTH_DEGRADED",
+            ):
+                self.set_exploration_state("WAITING_FOR_NEXT_GOAL")
 
         if self.initial_paused:
             self.stop_initial_motion()
@@ -2210,6 +2776,7 @@ class GraphNBVStageB31ManualGate:
         self.mode_pub.publish(
             String(data="GLOBAL_RELOCATION")
         )
+        self.set_exploration_state("RELOCATING_GLOBAL")
         self.publish_status(
             "LOCAL_EXHAUSTED_SEARCHING_GLOBAL"
         )
@@ -2245,26 +2812,16 @@ class GraphNBVStageB31ManualGate:
                     self.forward_finish_stable_cycles,
                 )
 
-                if (
-                    self.forward_empty_cycles
-                    >= self.forward_finish_stable_cycles
+                if gate_exhaustion_reached(
+                    self.forward_empty_cycles,
+                    self.forward_finish_stable_cycles,
                 ):
-                    # Hard gate: never unlock or explore behind the gate.
-                    self.finished = True
-                    self.finished_pub.publish(Bool(data=True))
-                    self.gate_state_pub.publish(
-                        String(data="HARD_FORWARD_GATE_FINISHED")
-                    )
-                    self.mode_pub.publish(
-                        String(data="FINISHED_FORWARD_REGION")
-                    )
-                    self.publish_status(
-                        "FINISHED_FORWARD_REGION"
-                    )
-                    rospy.loginfo(
-                        "[graph_nbv] hard forward region exhausted; "
-                        "exploration finished without unlocking gate"
-                    )
+                    if self.unlock_gate_on_exhaustion:
+                        self.unlock_forward_gate()
+                    else:
+                        self.finish_exploration(
+                            "FINISHED_FORWARD_REGION_LEGACY_POLICY"
+                        )
 
                 self.publish_markers(
                     nodes,
@@ -2292,13 +2849,7 @@ class GraphNBVStageB31ManualGate:
                 self.global_empty_cycles
                 >= self.global_empty_cycles_to_finish
             ):
-                self.finished = True
-                self.finished_pub.publish(Bool(data=True))
-                self.publish_status("FINISHED")
-                rospy.loginfo(
-                    "[graph_nbv] no local or global frontier; "
-                    "exploration finished"
-                )
+                self.finish_exploration("FINISHED_NO_REACHABLE_FRONTIER")
 
         self.publish_markers(
             nodes,

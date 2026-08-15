@@ -45,7 +45,16 @@ initial_obstacle_check_width: 0.70
 # Direction-projection gate.
 gate_backtrack_margin: 0.50
 forward_finish_stable_cycles: 8
+# Exhausting the initially permitted region unlocks global relocation so
+# remaining rooms can be visited; it does not publish reverse velocity.
+unlock_gate_on_exhaustion: true
 behind_gate_penalty_after_unlock: 10.0
+
+# Startup stability gate.
+manual_gate_stability_samples: 5
+manual_gate_stability_position: 0.12
+manual_gate_stability_angle_deg: 8.0
+manual_gate_wait_timeout: 30.0
 
 # Local graph.
 local_sampling_radius: 8.0
@@ -96,3 +105,12 @@ progress_epsilon: 0.20
 blacklist_radius: 1.00
 global_empty_cycles_to_finish: 30
 plan_period: 1.50
+
+# Goal lifecycle and health guard.
+goal_recovery_pause: 2.0
+max_consecutive_goal_failures: 5
+map_freshness_timeout: 5.0
+tf_freshness_timeout: 2.0
+health_failure_limit: 3
+# Reject numerically divergent TF poses before they reach graph planning.
+max_pose_abs: 200.0

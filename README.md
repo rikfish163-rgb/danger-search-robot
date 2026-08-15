@@ -50,13 +50,19 @@ SimEnv → 站立(按2) → livox bridge → FAST-LIO → level_tf → world标�
 | SLAM 爆炸/移动跟丢 | 点云 line 全 0 但 scan_line=6、fov=90 视野错、容器跑旧二进制 | mid360: scan_line=1、fov=360、det_range=100、extrinsic_T 修正 + 恢复容器编译二进制 |
 | level_tf 断链 | static_transform_publisher 不发布 /tf_static | 用 `static_level_tf.py`（StaticTransformBroadcaster）替代 |
 
-### 运行时诊断日志
+### 运行时诊断
 
-`graph_nbv_stage_b31_manual_gate_node.py` 内置 `[graph_nbv][diag]` 日志：
-- `select: finite_targets=... blacklisted=... selected=YES/NONE`（目标选择）
-- `graph: nodes=... edges=... finite_reachable=... edge_clear_rejected=...`（图连通性）
-- `gate origin=... heading=... robot=... delta=...deg`（门禁朝向，问题2诊断）
-- `global frontiers=... small_discarded=...`（问题3诊断）
+`graph_nbv_stage_b31_manual_gate_node.py` 发布锁存的
+`/graph_nbv/runtime_status` JSON 心跳（schema=`graph_nbv_runtime_v1`），包含：
+
+- 当前状态、状态持续时间、地图/TF 新鲜度和最后一次错误；
+- 活动目标与上一个目标的结果、耗时、失败原因；
+- 门禁是否锁定、前向耗尽计数、解锁次数；
+- 目标成功/失败总数、连续失败预算、黑名单规模。
+
+前向区域连续无可达 frontier 达到 `forward_finish_stable_cycles` 后，默认只
+解锁全局 relocation，让剩余房间仍有机会被搜索；这一步不直接发布倒车速度。
+只有最终状态为 `FINISHED` 且目标/房间记录满足验收条件，才算探索完成。
 
 ## 解决方案文档
 
