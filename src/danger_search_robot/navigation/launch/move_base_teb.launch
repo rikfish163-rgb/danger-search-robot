@@ -2,10 +2,12 @@
   <arg name="enable_teb_infeasible_forward_override" default="true"/>
   <arg name="teb_infeasible_trigger_duration" default="0.0"/>
   <arg name="teb_infeasible_force_duration" default="2.0"/>
-  <arg name="teb_infeasible_forward_speed" default="0.20"/>
+  <!-- Keep recovery commands within the TEB translational speed envelope. -->
+  <arg name="teb_infeasible_forward_speed" default="0.08"/>
   <arg name="teb_infeasible_lateral_duration" default="2.0"/>
   <arg name="teb_infeasible_lateral_speed" default="0.20"/>
-  <arg name="teb_min_linear_speed" default="0.20"/>
+  <!-- 0 disables command magnification; TEB owns the velocity limit. -->
+  <arg name="teb_min_linear_speed" default="0.0"/>
 
   <node pkg="move_base" type="move_base" name="move_base"
         output="screen" clear_params="true">

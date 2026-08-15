@@ -44,9 +44,10 @@ class TebInfeasibleRecoveryOverride:
         self.forward_speed = float(rospy.get_param("~forward_speed", 0.20))
         self.lateral_duration = float(rospy.get_param("~lateral_duration", 2.0))
         self.lateral_speed = float(rospy.get_param("~lateral_speed", 0.20))
-        # Keep exactly-zero commands available for stopping, but raise every
-        # non-zero planar command below this magnitude to a speed the A1 can
-        # actually execute.  Angular velocity is deliberately not clamped.
+        # Keep exactly-zero commands available for stopping.  A value of zero
+        # disables command magnification: TEB's own max_vel_* parameters must
+        # remain authoritative, especially for reverse motion.  Angular
+        # velocity is deliberately not clamped.
         self.min_linear_speed = float(
             rospy.get_param("~min_linear_speed", 0.20)
         )
@@ -110,11 +111,15 @@ class TebInfeasibleRecoveryOverride:
             raise ValueError("forward_speed must be > 0")
         if self.lateral_speed <= 0.0:
             raise ValueError("lateral_speed must be > 0")
-        if self.min_linear_speed <= 0.0:
-            raise ValueError("min_linear_speed must be > 0")
-        if not 0.0 <= self.linear_zero_epsilon < self.min_linear_speed:
+        if self.min_linear_speed < 0.0:
+            raise ValueError("min_linear_speed must be >= 0")
+        if self.linear_zero_epsilon < 0.0:
             raise ValueError(
-                "linear_zero_epsilon must be >= 0 and < min_linear_speed"
+                "linear_zero_epsilon must be >= 0"
+            )
+        if self.min_linear_speed > 0.0 and self.linear_zero_epsilon >= self.min_linear_speed:
+            raise ValueError(
+                "linear_zero_epsilon must be < min_linear_speed when clamping is enabled"
             )
         if self.publish_rate <= 0.0:
             raise ValueError("publish_rate must be > 0")
@@ -221,6 +226,8 @@ class TebInfeasibleRecoveryOverride:
 
         planar_speed = math.hypot(command.linear.x, command.linear.y)
         if (
+            self.min_linear_speed > 0.0
+            and
             self.linear_zero_epsilon < planar_speed < self.min_linear_speed
         ):
             scale = self.min_linear_speed / planar_speed

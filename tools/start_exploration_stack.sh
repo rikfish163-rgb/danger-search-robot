@@ -9,7 +9,8 @@ RUNTIME_DIR="${EXPLORATION_STACK_RUNTIME_DIR:-/tmp/ros1_exploration_stack}"
 mkdir -p "$RUNTIME_DIR"
 
 source /opt/ros/noetic/setup.bash
-source "$ROOT_DIR/devel/setup.bash"
+CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
+source "$CATKIN_DEVEL_SPACE/setup.bash"
 
 node_present() {
   rosnode list 2>/dev/null | grep -Fxq "$1"
@@ -96,12 +97,12 @@ start_binary /gazebo_truth_base_tf gazebo_truth_base_tf.log \
 # These two nodes were previously started manually after the mission had
 # already entered room 3.  Keep them before vision_stack and before the run.
 start_binary /gazebo_sim_rgb_bridge gazebo_sim_rgb_bridge.log \
-  "$ROOT_DIR/devel/lib/danger_search_robot/gazebo_image_to_ros" \
+  "$CATKIN_DEVEL_SPACE/lib/danger_search_robot/gazebo_image_to_ros" \
   /gazebo/generated_world/a1_gazebo/base/real_sense/image \
   /sim_rgb/image_raw real_sense_color_optical_frame \
   __name:=gazebo_sim_rgb_bridge
 start_binary /gazebo_sim_depth_bridge gazebo_sim_depth_bridge.log \
-  "$ROOT_DIR/devel/lib/danger_search_robot/gazebo_depth_to_pointcloud" \
+  "$CATKIN_DEVEL_SPACE/lib/danger_search_robot/gazebo_depth_to_pointcloud" \
   /gazebo/generated_world/a1_gazebo/base/real_sense_depth/image \
   /sim_depth/points real_sense_depth_optical_frame 1.0472 \
   __name:=gazebo_sim_depth_bridge

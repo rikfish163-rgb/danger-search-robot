@@ -7,7 +7,8 @@ set -euo pipefail
 # frames for the first room.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source /opt/ros/noetic/setup.bash
-source "$ROOT_DIR/devel/setup.bash"
+CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
+source "$CATKIN_DEVEL_SPACE/setup.bash"
 
 failures=0
 
@@ -56,6 +57,18 @@ if ! timeout --foreground 8s rosservice list >/dev/null 2>&1; then
   exit 78
 fi
 
+move_base_package="$(rospack find move_base 2>/dev/null || true)"
+teb_package="$(rospack find teb_local_planner 2>/dev/null || true)"
+move_base_executable=""
+if [ -n "$move_base_package" ]; then
+  move_base_executable="$(dirname "$move_base_package")/../lib/move_base/move_base"
+fi
+if [ -z "$move_base_package" ] || [ ! -x "$move_base_executable" ] || [ -z "$teb_package" ]; then
+  echo "preflight failed: move_base/TEB is missing from the ROS runtime image" >&2
+  echo "install the repository's fixed runtime image before starting a mission" >&2
+  exit 78
+fi
+
 for node in \
   /gazebo_sim_rgb_bridge \
   /gazebo_sim_depth_bridge \
@@ -84,6 +97,14 @@ for service in \
   /target_manager/reset; do
   require_service "$service"
 done
+
+if [ "${CHECK_NAVIGATION_RUNTIME:-0}" = "1" ]; then
+  for node in /unitree_gazebo_servo /move_base; do
+    require_node "$node"
+  done
+  require_publisher /cmd_vel
+  require_service /move_base/make_plan
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "exploration stack preflight FAILED: $failures check(s)" >&2

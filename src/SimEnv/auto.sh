@@ -43,6 +43,7 @@ ENABLE_FOOT_FORCE_VISUAL="$(as_ros_bool "${ENABLE_FOOT_FORCE_VISUAL:-0}")"
 ENABLE_JOY_NODE="$(as_ros_bool "${ENABLE_JOY_NODE:-0}")"
 ENABLE_POINTCLOUD_CONVERTER="$(as_ros_bool "${ENABLE_POINTCLOUD_CONVERTER:-$ENABLE_LIVOX}")"
 POINTCLOUD_USE_GROUND_TRUTH_ODOM="$(as_ros_bool "${POINTCLOUD_USE_GROUND_TRUTH_ODOM:-1}")"
+PUBLISH_ODOM_TF="$(as_ros_bool "${PUBLISH_ODOM_TF:-0}")"
 WRITE_GENERATED_TRUTH_COPY="$(as_ros_bool "${WRITE_GENERATED_TRUTH_COPY:-1}")"
 UNITREE_CTRL_DT="${UNITREE_CTRL_DT:-0.004}"
 UNITREE_LOG_WAIT_WARNINGS="$(as_ros_bool "${UNITREE_LOG_WAIT_WARNINGS:-0}")"
@@ -125,16 +126,18 @@ echo "Sourcing ROS environment..."
 export ROS_MASTER_URI="${ROS_MASTER_URI:-http://localhost:11311}"
 export ROS_HOSTNAME="${ROS_HOSTNAME:-localhost}"
 source /opt/ros/noetic/setup.bash
-if [ ! -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
-  echo "Missing $WORKSPACE_DIR/devel/setup.bash. Run catkin_make in this workspace before starting the simulation." >&2
+CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$WORKSPACE_DIR/devel}"
+UNITREE_CTRL_BINARY="${UNITREE_CTRL_BINARY:-$CATKIN_DEVEL_SPACE/lib/unitree_guide/junior_ctrl}"
+if [ ! -f "$CATKIN_DEVEL_SPACE/setup.bash" ]; then
+  echo "Missing $CATKIN_DEVEL_SPACE/setup.bash. Build the workspace before starting the simulation." >&2
   exit 1
 fi
-source "$WORKSPACE_DIR/devel/setup.bash"
+source "$CATKIN_DEVEL_SPACE/setup.bash"
 export PATH="/opt/ros/noetic/bin:${PATH:-}"
-export PYTHONPATH="$WORKSPACE_DIR/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:${PYTHONPATH:-}"
-export LD_LIBRARY_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${LD_LIBRARY_PATH:-}"
+export PYTHONPATH="$CATKIN_DEVEL_SPACE/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:${PYTHONPATH:-}"
+export LD_LIBRARY_PATH="$CATKIN_DEVEL_SPACE/lib:/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${LD_LIBRARY_PATH:-}"
 export ROS_PACKAGE_PATH="$WORKSPACE_DIR/src:/opt/ros/noetic/share:${ROS_PACKAGE_PATH:-}"
-export CMAKE_PREFIX_PATH="$WORKSPACE_DIR/devel:/opt/ros/noetic${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"
+export CMAKE_PREFIX_PATH="$CATKIN_DEVEL_SPACE:/opt/ros/noetic${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"
 export PYTHONPATH="$WORKSPACE_DIR/src/SimEnv/src/building_generator_classic:$WORKSPACE_DIR/src/SimEnv/src/building_generator_core:${PYTHONPATH:-}"
 
 GENERATOR_SCRIPT="$WORKSPACE_DIR/src/SimEnv/src/building_obstacles/scripts/generate_competition_scene.py"
@@ -181,7 +184,7 @@ export UNITREE_CTRL_DT
 export UNITREE_LOG_WAIT_WARNINGS
 export CONTROLLER_SPAWNER_TIMEOUT
 export GAZEBO_MODEL_PATH="${GAZEBO_MODEL_PATH:-}:$SCENE_OUTPUT_DIR:$UNITREE_GAZEBO_MODELS"
-export GAZEBO_PLUGIN_PATH="$WORKSPACE_DIR/devel/lib:/opt/ros/noetic/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${GAZEBO_PLUGIN_PATH:-}"
+export GAZEBO_PLUGIN_PATH="$CATKIN_DEVEL_SPACE/lib:/opt/ros/noetic/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:${GAZEBO_PLUGIN_PATH:-}"
 
 echo "=========================================="
 echo "Competition scene is ready"
@@ -241,6 +244,7 @@ roslaunch unitree_guide multi_floor_gazeboSim.launch \
   enable_joy_node:="$ENABLE_JOY_NODE" \
   enable_pointcloud_converter:="$ENABLE_POINTCLOUD_CONVERTER" \
   pointcloud_use_ground_truth_odom:="$POINTCLOUD_USE_GROUND_TRUTH_ODOM" \
+  publish_odom_tf:="$PUBLISH_ODOM_TF" \
   > "$WORKSPACE_DIR/logs/competition_gazebo.log" 2>&1 &
 LAUNCH_PID=$!
 echo "$LAUNCH_PID" > "$WORKSPACE_DIR/logs/competition_gazebo.pid"
@@ -255,8 +259,8 @@ start_camera_bridges() {
     exit 1
   fi
 
-  local rgb_bridge="$WORKSPACE_DIR/devel/lib/danger_search_robot/gazebo_image_to_ros"
-  local depth_bridge="$WORKSPACE_DIR/devel/lib/danger_search_robot/gazebo_depth_to_pointcloud"
+  local rgb_bridge="$CATKIN_DEVEL_SPACE/lib/danger_search_robot/gazebo_image_to_ros"
+  local depth_bridge="$CATKIN_DEVEL_SPACE/lib/danger_search_robot/gazebo_depth_to_pointcloud"
   [ -x "$rgb_bridge" ] || { echo "missing RGB bridge: $rgb_bridge" >&2; exit 1; }
   [ -x "$depth_bridge" ] || { echo "missing depth bridge: $depth_bridge" >&2; exit 1; }
 
@@ -312,10 +316,14 @@ if [ "$START_CONTROLLER" = "1" ]; then
     sleep 2
 
     LIBTORCH_ROOT="${LIBTORCH_ROOT:-/root/ros1_isolated/deps/libtorch}"
+    if [ ! -x "$UNITREE_CTRL_BINARY" ]; then
+      echo "Missing executable UNITREE_CTRL_BINARY=$UNITREE_CTRL_BINARY" >&2
+      exit 1
+    fi
     (
       cd "$WORKSPACE_DIR/src/SimEnv"
       LD_LIBRARY_PATH="$LIBTORCH_ROOT/lib:${LD_LIBRARY_PATH:-}" \
-      "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+      "$UNITREE_CTRL_BINARY"
     ) || true
     echo "junior_ctrl exited; keeping Gazebo running for inspection. Press Ctrl-C to stop this script."
     wait "$LAUNCH_PID"
@@ -324,10 +332,14 @@ if [ "$START_CONTROLLER" = "1" ]; then
     echo "Starting junior_ctrl controller in the background. Keyboard state switching may not be available."
     echo "UNITREE_CTRL_DT=$UNITREE_CTRL_DT seconds."
     LIBTORCH_ROOT="${LIBTORCH_ROOT:-/root/ros1_isolated/deps/libtorch}"
+    if [ ! -x "$UNITREE_CTRL_BINARY" ]; then
+      echo "Missing executable UNITREE_CTRL_BINARY=$UNITREE_CTRL_BINARY" >&2
+      exit 1
+    fi
     (
       cd "$WORKSPACE_DIR/src/SimEnv"
       LD_LIBRARY_PATH="$LIBTORCH_ROOT/lib:${LD_LIBRARY_PATH:-}" \
-      "$WORKSPACE_DIR/devel/lib/unitree_guide/junior_ctrl"
+      "$UNITREE_CTRL_BINARY"
     ) > "$WORKSPACE_DIR/logs/junior_ctrl.log" 2>&1 &
     echo $! > "$WORKSPACE_DIR/logs/junior_ctrl.pid"
     schedule_unpause_physics

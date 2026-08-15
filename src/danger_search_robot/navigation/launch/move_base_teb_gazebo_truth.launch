@@ -1,5 +1,6 @@
 <launch>
   <arg name="robot_base_frame" default="body" />
+  <arg name="map_topic" default="/map_confirmed" />
   <!--
     Container/Gazebo validation profile.
     state_from_gazebo publishes odom -> base and /Odometry_gazebo.
@@ -26,8 +27,10 @@
     <!-- Override the body/FAST-LIO defaults loaded above. -->
     <param name="global_costmap/global_frame" value="world"/>
     <param name="global_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="global_costmap/static_layer/map_topic" value="$(arg map_topic)"/>
     <param name="local_costmap/global_frame" value="world"/>
     <param name="local_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="local_costmap/static_layer/map_topic" value="$(arg map_topic)"/>
     <param name="TebLocalPlannerROS/odom_topic" value="/Odometry_gazebo"/>
     <param name="TebLocalPlannerROS/map_frame" value="world"/>
 

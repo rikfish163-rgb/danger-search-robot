@@ -39,6 +39,11 @@ State_Trotting::State_Trotting(CtrlComponents *ctrlComp)
     _vyLim << -0.6, 0.6;
     _wyawLim << -1.0, 1.0;
 
+    // AMP recording is a training/debug path, not part of competition
+    // navigation.  It used the same Joy button as move_base and repeatedly
+    // retried a developer-only absolute path in the container.
+    ros::param::param("/enable_amp_recording", amp_recording_enabled, false);
+
 }
 
 State_Trotting::~State_Trotting(){
@@ -71,8 +76,12 @@ void State_Trotting::enter(){
         delete amp_obs_thread;
         amp_obs_thread = nullptr;
     }
-    ampthreadRunning = State_Trotting::RUNNING;
-    amp_obs_thread = new std::thread(&State_Trotting::save_amp_obs_thread,this);
+    if(amp_recording_enabled){
+        ampthreadRunning = State_Trotting::RUNNING;
+        amp_obs_thread = new std::thread(&State_Trotting::save_amp_obs_thread,this);
+    }else{
+        ampthreadRunning = State_Trotting::STOP;
+    }
 }
 
 void State_Trotting::exit(){
@@ -101,7 +110,7 @@ FSMStateName State_Trotting::checkChange(){
         return FSMStateName::FIXEDSTAND;
     }
     else if(_lowState->userCmd == UserCommand::L1_X){
-        if (_last_cmd==static_cast<int>(UserCommand::START))
+        if (amp_recording_enabled && _last_cmd==static_cast<int>(UserCommand::START))
         {
             open_amp_save_file();
             dofPosSwitBeginTime = getTime();

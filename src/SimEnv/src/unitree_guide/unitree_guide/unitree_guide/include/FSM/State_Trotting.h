@@ -101,6 +101,7 @@ private:
     float motion_time = 0.0;
     std::thread* amp_obs_thread = nullptr;
     uint8_t ampthreadRunning = State_Trotting::STOP;
+    bool amp_recording_enabled = false;
     float amp_duration = 0.020;
 };
 
