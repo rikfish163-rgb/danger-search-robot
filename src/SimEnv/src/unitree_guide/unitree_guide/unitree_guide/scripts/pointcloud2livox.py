@@ -9,8 +9,8 @@
 
 import tf
 import rospy
-import struct
 import numpy as np
+from collections import deque
 from threading import Lock
 
 from sensor_msgs.msg import PointCloud, PointCloud2, PointField
@@ -23,53 +23,39 @@ ODOM_FRAME = "odom"
 LOCAL_SENSOR_FRAME = "laser_livox"
 ODOM_TOPIC = "/Odometry_gazebo"
 m_buf = Lock()
+processing_buf = Lock()
 latest_odom = None
+odom_history = deque(maxlen=500)
 use_ground_truth_odom = True
+sensor_frame = LOCAL_SENSOR_FRAME
+publish_custom_enabled = True
+max_cloud_age = 0.75
+max_future_cloud_age = 0.25
+max_odom_sync_error = 0.25
 
 
-def _get_struct_fmt(pointcloud2):
-    fmt = ''
-    for field in pointcloud2.fields:
-        if field.datatype == PointField.FLOAT32:
-            fmt += 'f'
-        elif field.datatype == PointField.UINT8:
-            fmt += 'B'
-        elif field.datatype == PointField.INT8:
-            fmt += 'b'
-        elif field.datatype == PointField.UINT16:
-            fmt += 'H'
-        elif field.datatype == PointField.INT16:
-            fmt += 'h'
-        elif field.datatype == PointField.UINT32:
-            fmt += 'I'
-        elif field.datatype == PointField.INT32:
-            fmt += 'i'
-        else:
-            rospy.logwarn("Unsupported field type: %d", field.datatype)
-    return fmt
+def points_to_custommsg(stamp, points):
+    """Build the optional custom message without a PointCloud2 round-trip.
 
-
-def pointcloud2_to_custommsg(pointcloud2):
+    The previous implementation packed and unpacked every point and called
+    ``rospy.Time.now()`` once per point. A 24k-point synthetic scan could
+    therefore queue several seconds behind the simulator.
+    """
     custom_msg = CustomMsg()
-    custom_msg.header = pointcloud2.header
-    custom_msg.timebase = rospy.Time.now().to_nsec()
-    custom_msg.point_num = pointcloud2.width
+    custom_msg.header.stamp = stamp
+    custom_msg.header.frame_id = sensor_frame
+    custom_msg.timebase = stamp.to_nsec()
+    custom_msg.point_num = len(points)
     custom_msg.lidar_id = 1  # Assuming lidar_id is 1
     custom_msg.rsvd = [0, 0, 0]  # Reserved fields
 
-    # Parse PointCloud2 data
-    fmt = _get_struct_fmt(pointcloud2)
-    for i in range(0, len(pointcloud2.data), pointcloud2.point_step):
-        point_data = pointcloud2.data[i:i+pointcloud2.point_step]
-        values = struct.unpack(fmt, point_data)
-        x, y, z = values[:3]
-
+    for x, y, z in points:
         custom_point = CustomPoint()
-        custom_point.offset_time = rospy.Time.now().to_nsec() - custom_msg.timebase
-        custom_point.x = x
-        custom_point.y = y
-        custom_point.z = z
-        # custom_point.reflectivity = int(intensity * 255)  # Scale intensity to 0-255
+        custom_point.offset_time = 0
+        custom_point.x = float(x)
+        custom_point.y = float(y)
+        custom_point.z = float(z)
+        custom_point.reflectivity = 0
         custom_point.tag = 0  # Assuming no tag
         custom_point.line = 0  # Assuming no line number
 
@@ -79,11 +65,8 @@ def pointcloud2_to_custommsg(pointcloud2):
 
 
 def publish_custom_livox(stamp, points):
-    header = rospy.Header()
-    header.stamp = stamp
-    header.frame_id = LOCAL_SENSOR_FRAME
-    cloud_msg = create_xyz_intensity_cloud(header, points)
-    pub_laser_livox.publish(pointcloud2_to_custommsg(cloud_msg))
+    if publish_custom_enabled:
+        pub_laser_livox.publish(points_to_custommsg(stamp, points))
 
 
 def create_xyz_intensity_cloud(header, points):
@@ -118,9 +101,25 @@ def rotate_pointcloud_y(points, theta):
     return rotated.tolist()
 
 def odom_callback(odom_msg):
-    global latest_odom
+    global latest_odom, odom_history
     with m_buf:
         latest_odom = odom_msg
+        odom_history.append(odom_msg)
+
+
+def odom_for_stamp(stamp):
+    """Return the closest buffered odometry sample for a cloud timestamp."""
+    with m_buf:
+        if not odom_history:
+            return latest_odom, None
+        if stamp is None or stamp.is_zero():
+            return latest_odom, None
+        selected = min(
+            odom_history,
+            key=lambda msg: abs((msg.header.stamp - stamp).to_sec()),
+        )
+        error = abs((selected.header.stamp - stamp).to_sec())
+        return selected, error
 
 def quat_to_rot_matrix(q):
     """四元数 → 3x3 旋转矩阵 (numpy)"""
@@ -141,7 +140,9 @@ def transform_points_to_odom(points_sensor, odom_msg):
 
     try:
          # 获取base到laser_livox的变换
-        (trans_base, rot_base) = tf_listener.lookupTransform('base', 'laser_livox', rospy.Time(0))
+        (trans_base, rot_base) = tf_listener.lookupTransform(
+            'base', sensor_frame, rospy.Time(0)
+        )
         rot_base_matrix = tf.transformations.quaternion_matrix(rot_base)[:3, :3]
 
         points_np = np.array(points_sensor, dtype=np.float32)
@@ -196,12 +197,59 @@ def filter_points_by_angle(points, min_angle_deg, max_angle_deg):
 
 
 def mmw_handler(mmw_cloud_msg):
-    global latest_odom, pub_laser_cloud,pub_laser_livox, laser_blind, laser_max_range
-    global min_angle,max_angle,use_ground_truth_odom
+    # Never let a slow conversion queue old scans behind the current one.
+    if not processing_buf.acquire(False):
+        rospy.logwarn_throttle(
+            2.0,
+            "Dropping scan while previous conversion is still running",
+        )
+        return
 
-    with m_buf:
-        odom_now = latest_odom
-        stamp = mmw_cloud_msg.header.stamp
+    try:
+        _mmw_handler(mmw_cloud_msg)
+    finally:
+        processing_buf.release()
+
+
+def _mmw_handler(mmw_cloud_msg):
+    global pub_laser_cloud, pub_laser_livox, laser_blind, laser_max_range
+    global min_angle, max_angle, use_ground_truth_odom
+
+    stamp = mmw_cloud_msg.header.stamp
+    now = rospy.Time.now()
+    if not stamp.is_zero() and not now.is_zero():
+        age = (now - stamp).to_sec()
+        if age > max_cloud_age:
+            rospy.logwarn_throttle(
+                2.0,
+                "Dropping stale scan: age=%.3fs limit=%.3fs",
+                age,
+                max_cloud_age,
+            )
+            return
+        if age < -max_future_cloud_age:
+            rospy.logwarn_throttle(
+                2.0,
+                "Dropping future-dated scan: lead=%.3fs limit=%.3fs",
+                -age,
+                max_future_cloud_age,
+            )
+            return
+
+    odom_now = None
+    if use_ground_truth_odom:
+        odom_now, odom_error = odom_for_stamp(stamp)
+        if odom_now is None:
+            rospy.logwarn_throttle(2.0, "No odometry available for scan timestamp")
+            return
+        if odom_error is not None and odom_error > max_odom_sync_error:
+            rospy.logwarn_throttle(
+                2.0,
+                "Dropping scan without synchronized odometry: error=%.3fs limit=%.3fs",
+                odom_error,
+                max_odom_sync_error,
+            )
+            return
 
     # Step 1: 提取原始点云 (更快的方式)
     x = np.fromiter((p.x for p in mmw_cloud_msg.points), dtype=np.float32)
@@ -237,8 +285,7 @@ def mmw_handler(mmw_cloud_msg):
     filtered_points = points_np[valid_range].tolist()
 
     # Step 3.5 转为 CustomMsg 并发布
-    with m_buf:
-        publish_custom_livox(stamp, filtered_points)
+    publish_custom_livox(stamp, filtered_points)
 
     # Step 4: 可选地使用 Gazebo 真值里程计变换到 odom。正式比赛应关闭该选项。
     if use_ground_truth_odom:
@@ -261,8 +308,10 @@ def mmw_handler(mmw_cloud_msg):
 
 
 def main():
-    global pub_laser_cloud,pub_laser_livox,laser_blind,laser_max_range
-    global min_angle,max_angle,tf_listener,use_ground_truth_odom
+    global pub_laser_cloud, pub_laser_livox, laser_blind, laser_max_range
+    global min_angle, max_angle, tf_listener, use_ground_truth_odom
+    global sensor_frame, publish_custom_enabled
+    global max_cloud_age, max_future_cloud_age, max_odom_sync_error
 
 
     rospy.init_node('pre_mmw_to_odom', anonymous=True)
@@ -286,16 +335,44 @@ def main():
     rospy.loginfo(f"Angle filter : {min_angle} ~ {max_angle} deg")
 
     use_ground_truth_odom = rospy.get_param('~use_ground_truth_odom', True)
+    sensor_frame = rospy.get_param('~sensor_frame', LOCAL_SENSOR_FRAME)
+    publish_custom_enabled = rospy.get_param('~publish_custom_livox', True)
+    max_cloud_age = rospy.get_param('~max_cloud_age', 0.75)
+    max_future_cloud_age = rospy.get_param('~max_future_cloud_age', 0.25)
+    max_odom_sync_error = rospy.get_param('~max_odom_sync_error', 0.25)
+    if (
+        max_cloud_age <= 0.0
+        or max_future_cloud_age < 0.0
+        or max_odom_sync_error <= 0.0
+    ):
+        raise rospy.ROSInitException(
+            "max cloud/odometry age parameters must be positive"
+        )
     rospy.loginfo(f"Use ground-truth odom for /livox/Pointcloud2: {use_ground_truth_odom}")
+    rospy.loginfo(
+        "Cloud guard: sensor=%s max_age=%.2fs future=%.2fs "
+        "odom_sync=%.2fs custom=%s",
+        sensor_frame,
+        max_cloud_age,
+        max_future_cloud_age,
+        max_odom_sync_error,
+        publish_custom_enabled,
+    )
 
     # 订阅原始点云；真值里程计仅在显式开启时订阅。
-    rospy.Subscriber('/scan', PointCloud, mmw_handler, queue_size=10)
+    rospy.Subscriber(
+        '/scan',
+        PointCloud,
+        mmw_handler,
+        queue_size=1,
+        buff_size=16 * 1024 * 1024,
+    )
     if use_ground_truth_odom:
         rospy.Subscriber(ODOM_TOPIC, Odometry, odom_callback, queue_size=10)
 
-    pub_laser_livox = rospy.Publisher('/livox/lidar2', CustomMsg, queue_size=10)
+    pub_laser_livox = rospy.Publisher('/livox/lidar2', CustomMsg, queue_size=1)
 
-    pub_laser_cloud = rospy.Publisher("/livox/Pointcloud2", PointCloud2, queue_size=10)
+    pub_laser_cloud = rospy.Publisher("/livox/Pointcloud2", PointCloud2, queue_size=1)
 
     rospy.loginfo("=== Pointcloud2livox STARTED ===")
     rospy.loginfo(f"Local sensor frame: {LOCAL_SENSOR_FRAME}")
