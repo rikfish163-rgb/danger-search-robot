@@ -115,6 +115,10 @@ blacklist_radius: 1.00
 plan_period: 1.0
 scan_pause: 1.5
 require_make_plan: true
-plan_service: /move_base/make_plan
+# Use the same GlobalPlanner plugin service that move_base uses internally.
+# The wrapper service can append an unreachable goal to a partial plan, which
+# lets a candidate pass preflight even though TEB cannot execute it.
+plan_service: /move_base/GlobalPlanner/make_plan
 plan_tolerance: 0.25
 navigation_retry_cooldown: 3.0
+action_server_timeout: 45.0

@@ -14,7 +14,7 @@ failures=0
 
 require_node() {
   local node="$1"
-  if rosnode list 2>/dev/null | grep -Fxq "$node"; then
+  if rosnode ping -c1 "$node" 2>&1 | grep -Fq "xmlrpc reply from"; then
     echo "preflight node ok: $node"
   else
     echo "preflight node missing: $node" >&2
@@ -124,6 +124,16 @@ if [ "${CHECK_NAVIGATION_RUNTIME:-0}" = "1" ]; then
   done
   require_publisher /cmd_vel
   require_service /move_base/make_plan
+  require_service /move_base/GlobalPlanner/make_plan
+  navigation_ready_timeout="${NAVIGATION_READY_TIMEOUT_SECONDS:-30}"
+  if timeout --foreground "${navigation_ready_timeout}s" \
+      python3 "$ROOT_DIR/tools/check_navigation_ready.py" \
+      --timeout "$navigation_ready_timeout"; then
+    echo "preflight navigation readiness ok"
+  else
+    echo "preflight navigation readiness FAILED" >&2
+    failures=$((failures + 1))
+  fi
 fi
 
 if [ "$failures" -ne 0 ]; then

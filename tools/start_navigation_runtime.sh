@@ -17,7 +17,9 @@ CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
 source "$CATKIN_DEVEL_SPACE/setup.bash"
 
 node_present() {
-  rosnode list 2>/dev/null | grep -Fxq "$1"
+  # The master may list a stale XML-RPC registration after a killed
+  # roslaunch.  Only a successful ping counts as a running navigation node.
+  rosnode ping -c1 "$1" 2>&1 | grep -Fq "xmlrpc reply from"
 }
 
 topic_present() {
@@ -78,9 +80,12 @@ else
 fi
 wait_for_node /move_base
 # move_base registers its node name before costmaps, the global planner, and
-# the action server are fully initialized.  The make_plan service is created
-# only after that initialization, so it is the readiness gate used here.
+# the action server are fully initialized.  The make_plan service is useful,
+# but it is not sufficient: check_exploration_stack also performs a real
+# actionlib client handshake and checks TF/costmap freshness before launch of
+# the exploration controller is allowed.
 wait_for_service /move_base/make_plan
+wait_for_service /move_base/GlobalPlanner/make_plan
 
 if [ "$ACTIVATE_RL_MODE" = "1" ]; then
   echo "activating junior_ctrl RL /cmd_vel mode"

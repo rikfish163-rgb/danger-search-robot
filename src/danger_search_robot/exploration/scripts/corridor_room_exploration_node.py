@@ -280,13 +280,16 @@ class CorridorRoomExplorer:
             rospy.get_param("~require_make_plan", True)
         )
         self.plan_service_name = rospy.get_param(
-            "~plan_service", "/move_base/make_plan"
+            "~plan_service", "/move_base/GlobalPlanner/make_plan"
         )
         self.plan_tolerance = float(
             rospy.get_param("~plan_tolerance", 0.25)
         )
         self.navigation_retry_cooldown = float(
             rospy.get_param("~navigation_retry_cooldown", 3.0)
+        )
+        self.action_server_timeout = float(
+            rospy.get_param("~action_server_timeout", 45.0)
         )
 
         # TF and move_base
@@ -382,7 +385,13 @@ class CorridorRoomExplorer:
                 "[corridor_room_explorer] waiting for %s...",
                 self.action_name,
             )
-            self.client.wait_for_server()
+            if not self.wait_for_action_server():
+                rospy.logfatal(
+                    "[corridor_room_explorer] action server did not become "
+                    "ready within %.1f wall seconds",
+                    self.action_server_timeout,
+                )
+                raise rospy.ROSException("move_base action server unavailable")
             rospy.loginfo(
                 "[corridor_room_explorer] move_base action available"
             )
@@ -413,6 +422,32 @@ class CorridorRoomExplorer:
 
     def publish_status(self, text: str) -> None:
         self.status_pub.publish(String(data=text))
+
+    def wait_for_action_server(self) -> bool:
+        """Wait using wall time; Gazebo time can run much faster than wall time."""
+        deadline = time.monotonic() + self.action_server_timeout
+        while not rospy.is_shutdown() and time.monotonic() < deadline:
+            try:
+                if self.client.wait_for_server(rospy.Duration(0.5)):
+                    return True
+            except Exception as exc:
+                rospy.logwarn_throttle(
+                    3.0,
+                    "[corridor_room_explorer] action handshake pending: %s",
+                    str(exc),
+                )
+            time.sleep(0.05)
+        return False
+
+    def action_goal_in_flight(self) -> bool:
+        if self.dry_run:
+            return False
+        return self.client.get_state() in (
+            GoalStatus.PENDING,
+            GoalStatus.ACTIVE,
+            GoalStatus.PREEMPTING,
+            GoalStatus.RECALLING,
+        )
 
     def mapping_health_callback(self, message: Bool) -> None:
         self.mapping_health_received = True
@@ -1841,6 +1876,11 @@ class CorridorRoomExplorer:
             )
             return True
 
+        if self.action_goal_in_flight():
+            self.client.cancel_all_goals()
+            self.publish_status("WAITING_FOR_MOVE_BASE_CANCEL")
+            return False
+
         if rospy.Time.now() < self.navigation_blocked_until:
             self.publish_status("WAITING_FOR_NAVIGATION")
             return False
@@ -2046,6 +2086,11 @@ class CorridorRoomExplorer:
                 self.client.cancel_goal()
                 self.current_goal = None
             self.publish_status("WAITING_FOR_MAPPING_HEALTH")
+            return
+
+        if self.action_goal_in_flight() and self.current_goal is None:
+            self.client.cancel_all_goals()
+            self.publish_status("WAITING_FOR_MOVE_BASE_CANCEL")
             return
 
         if self.grid is None or self.covered is None:

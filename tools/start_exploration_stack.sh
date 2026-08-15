@@ -13,7 +13,9 @@ CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
 source "$CATKIN_DEVEL_SPACE/setup.bash"
 
 node_present() {
-  rosnode list 2>/dev/null | grep -Fxq "$1"
+  # rosnode list can retain a dead XML-RPC registration briefly after a
+  # roslaunch/move_base crash.  A ping proves that the node is responsive.
+  rosnode ping -c1 "$1" 2>&1 | grep -Fq "xmlrpc reply from"
 }
 
 wait_for_node() {
