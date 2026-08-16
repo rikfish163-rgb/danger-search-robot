@@ -7,6 +7,7 @@
 #include <tf/transform_listener.h>
 #include <nav_msgs/Odometry.h>
 #include <boost/bind.hpp>   // 将tf监听绑定到ROS回调函数
+#include <cmath>
 
 
 using namespace std;
@@ -34,6 +35,29 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
         ROS_WARN_THROTTLE(5.0, "Could not find link '%s_gazebo::base' in /gazebo/link_states", robot_name.c_str());
         return;
     }
+
+    const auto &pose = msg->pose[index];
+    const auto &twist = msg->twist[index];
+    const double quaternion_norm = std::sqrt(
+        pose.orientation.x * pose.orientation.x +
+        pose.orientation.y * pose.orientation.y +
+        pose.orientation.z * pose.orientation.z +
+        pose.orientation.w * pose.orientation.w);
+    const bool finite_state =
+        std::isfinite(pose.position.x) && std::isfinite(pose.position.y) &&
+        std::isfinite(pose.position.z) && std::isfinite(pose.orientation.x) &&
+        std::isfinite(pose.orientation.y) && std::isfinite(pose.orientation.z) &&
+        std::isfinite(pose.orientation.w) && std::isfinite(twist.linear.x) &&
+        std::isfinite(twist.linear.y) && std::isfinite(twist.linear.z) &&
+        std::isfinite(twist.angular.x) && std::isfinite(twist.angular.y) &&
+        std::isfinite(twist.angular.z) && quaternion_norm > 1e-9;
+    if (!finite_state) {
+        ROS_WARN_THROTTLE(
+            2.0,
+            "Ignoring non-finite Gazebo state for '%s_gazebo::base'; refusing to publish NaN odometry/TF",
+            robot_name.c_str());
+        return;
+    }
     last_tf_stamp = stamp;
     has_last_tf_stamp = true;
 
@@ -55,26 +79,26 @@ void callback_BASE(const gazebo_msgs::LinkStates::ConstPtr &msg) {
     //求变化矩阵的逆解，用于推算map到odom的关系，以便能得到base到map的关系，及
     tf::Transform transform_map2odom = transform_odom2map.inverse();
 
-    tf::Point pt_map(msg->pose[index].position.x,msg->pose[index].position.y,msg->pose[index].position.z);
+    tf::Point pt_map(pose.position.x, pose.position.y, pose.position.z);
     tf::Point pt_odom = transform_map2odom * pt_map;
     
-    tf::Quaternion q_map(msg->pose[index].orientation.x,
-                        msg->pose[index].orientation.y,
-                        msg->pose[index].orientation.z,
-                        msg->pose[index].orientation.w);
+    tf::Quaternion q_map(pose.orientation.x,
+                        pose.orientation.y,
+                        pose.orientation.z,
+                        pose.orientation.w);
     tf::Quaternion q_odom = transform_map2odom.getRotation() * q_map;
 
     // 转换为odom的速度关系
     tf::Vector3 linear_vel(
-        msg->twist[index].linear.x,
-        msg->twist[index].linear.y,
-        msg->twist[index].linear.z);
+        twist.linear.x,
+        twist.linear.y,
+        twist.linear.z);
     tf::Vector3 transformed_linear_vel = transform_map2odom.getBasis() * linear_vel;
 
     tf::Vector3 angular_vel(
-        msg->twist[index].angular.x,
-        msg->twist[index].angular.y,
-        msg->twist[index].angular.z);
+        twist.angular.x,
+        twist.angular.y,
+        twist.angular.z);
     tf::Vector3 transformed_angular_vel = transform_map2odom.getBasis() * angular_vel;
     
     //发布base到odom的tf变换

@@ -100,6 +100,7 @@ private:
     ros::NodeHandle _nh;
     ros::Publisher _pub;
     tf::TransformBroadcaster _odomBroadcaster;
+    bool _publish_odom_tf = true;
     ros::Time _currentTime;
     geometry_msgs::TransformStamped _odomTF;
     nav_msgs::Odometry _odomMsg;

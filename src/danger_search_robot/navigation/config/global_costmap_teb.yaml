@@ -12,7 +12,7 @@ global_costmap:
   - name: inflation_layer
     type: costmap_2d::InflationLayer
   static_layer:
-    map_topic: /map_confirmed
+    map_topic: /map_raw
     subscribe_to_updates: false
     track_unknown_space: true
     unknown_cost_value: -1

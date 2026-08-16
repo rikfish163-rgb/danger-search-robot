@@ -162,16 +162,16 @@ target_link_libraries(state_from_gazebo ${catkin_LIBRARIES})
 
 add_executable(junior_ctrl src/main.cpp ${SRC_LIST})
 
-# Enable the existing move_base-backed trotting state so navigation can drive
-# the stable classical controller through /cmd_vel instead of the RL policy.
-target_compile_definitions(junior_ctrl PRIVATE COMPILE_WITH_MOVE_BASE)
+# The validated Gazebo navigation path is move_base/TEB -> /cmd_vel -> RL.
+# Keep the legacy State_move_base trotting controller behind the package's
+# explicit MOVE_BASE option; forcing it into every build made button 4 enter
+# an unstable controller path that can drive the model to NaN.
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-as-needed")
 
 target_link_libraries(junior_ctrl
     ${catkin_LIBRARIES}
     ${TORCH_LIBRARIES}
-    lcm
     pthread
 )
 

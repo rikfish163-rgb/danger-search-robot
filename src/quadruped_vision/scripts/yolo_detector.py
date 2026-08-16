@@ -25,6 +25,7 @@ YOLO 红色球体检测节点。
 
 import math
 import os
+import time
 from typing import Dict, List, Tuple
 
 import cv2
@@ -80,6 +81,19 @@ class YoloDetectorNode:
             rospy.get_param("~image_size", 640)
         )
 
+        # The simulator can publish RGB frames much faster than a CPU-only
+        # YOLO model can infer them.  Processing every queued frame starves
+        # Gazebo and makes the mission appear stuck.  The subscriber already
+        # keeps only the newest frame; this wall-clock gate makes the compute
+        # budget explicit while retaining enough frames for multi-frame
+        # danger confirmation.
+        self.max_inference_hz = float(
+            rospy.get_param("~max_inference_hz", 5.0)
+        )
+        if self.max_inference_hz < 0.0:
+            raise ValueError("~max_inference_hz must be >= 0")
+        self._last_inference_wall = 0.0
+
         # 空字符串或 auto：让 Ultralytics 自动选择设备。
         # "0"：指定第 0 块 CUDA 显卡。
         # "cpu"：强制使用 CPU。
@@ -133,7 +147,7 @@ class YoloDetectorNode:
         rospy.loginfo(
             "YOLO detector ready | image=%s | output=%s | "
             "model=%s | target=%s(id=%d) | conf=%.2f | "
-            "iou=%.2f | imgsz=%d | device=%s",
+            "iou=%.2f | imgsz=%d | device=%s | max_hz=%.2f",
             self.image_topic,
             self.detections_topic,
             self.model_path,
@@ -143,6 +157,7 @@ class YoloDetectorNode:
             self.iou_threshold,
             self.image_size,
             self.device,
+            self.max_inference_hz,
         )
 
     def _validate_parameters(self, model_path: str) -> None:
@@ -380,6 +395,16 @@ class YoloDetectorNode:
 
     def image_callback(self, image_msg: Image) -> None:
         """处理一帧带采集时间戳的 RGB 图像。"""
+        now_wall = time.monotonic()
+        if (
+            self.max_inference_hz > 0.0
+            and self._last_inference_wall > 0.0
+            and now_wall - self._last_inference_wall
+            < 1.0 / self.max_inference_hz
+        ):
+            return
+        self._last_inference_wall = now_wall
+
         try:
             bgr_image = self.bridge.imgmsg_to_cv2(
                 image_msg,

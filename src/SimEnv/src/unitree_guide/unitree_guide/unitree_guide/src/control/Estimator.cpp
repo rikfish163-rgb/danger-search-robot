@@ -41,6 +41,13 @@ Estimator::~Estimator(){
 }
 
 void Estimator::_initSystem(){
+#ifdef COMPILE_WITH_MOVE_BASE
+    // In the Gazebo truth profile, state_from_gazebo owns odom->base.  The
+    // controller still publishes /odom, but its estimator TF is optional so
+    // two nodes never compete for the same transform.
+    _nh.param("publish_odom_tf", _publish_odom_tf, true);
+#endif  // COMPILE_WITH_MOVE_BASE
+
     _g << 0, 0, -9.81;
     _largeVariance = 100;
 
@@ -184,7 +191,9 @@ void Estimator::run(){
             _odomTF.transform.rotation.y = _lowState->imu.quaternion[2];
             _odomTF.transform.rotation.z = _lowState->imu.quaternion[3];
 
-            _odomBroadcaster.sendTransform(_odomTF);
+            if(_publish_odom_tf){
+                _odomBroadcaster.sendTransform(_odomTF);
+            }
 
             /* odometry */
             _odomMsg.header.stamp = _currentTime;
@@ -253,4 +262,3 @@ Vec34 Estimator::getPosFeet2BGlobal(){
     }
     return feet2BPos;
 }
-

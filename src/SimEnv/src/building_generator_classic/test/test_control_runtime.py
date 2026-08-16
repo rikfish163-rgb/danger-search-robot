@@ -3,11 +3,78 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from building_generator_classic.control_server import _compose_world_pose, _pose_inside_elevator_car
+from building_generator_classic.control_server import (
+    _apply_initial_open_doors,
+    _compose_world_pose,
+    _pose_inside_elevator_car,
+)
 from building_generator_classic.control_runtime import BuildingControlRuntime
 
 
 class BuildingControlRuntimeTest(unittest.TestCase):
+    def test_initial_open_doors_are_exposed_for_startup_sync(self) -> None:
+        runtime = BuildingControlRuntime(
+            door_specs=[
+                {
+                    "id": "main_entrance",
+                    "kind": "main_entrance",
+                    "initial_open": True,
+                    "panel_poses": {
+                        "left_open": [0.0, -1.06, 0.0, 0.0, 0.0, 0.0],
+                        "right_open": [0.0, 1.06, 0.0, 0.0, 0.0, 0.0],
+                    },
+                },
+                {
+                    "id": "elevator_floor_1",
+                    "kind": "elevator",
+                    "initial_open": False,
+                },
+            ],
+            elevator_specs=[],
+        )
+
+        self.assertEqual(runtime.initial_open_door_ids(), ("main_entrance",))
+        result = runtime.set_door_state("main_entrance", True)
+        self.assertEqual(result["motion_duration"], 0.0)
+        self.assertEqual(result["panel_poses"]["left_panel"], [0.0, -1.06, 0.0, 0.0, 0.0, 0.0])
+
+    def test_startup_sync_applies_initial_open_panels(self) -> None:
+        runtime = BuildingControlRuntime(
+            door_specs=[
+                {
+                    "id": "main_entrance",
+                    "kind": "main_entrance",
+                    "initial_open": True,
+                    "model_name": "dynamic_main_entrance",
+                    "closed_pose": [0.0, 0.0, 1.2, 0.0, 0.0, 1.5708],
+                    "panel_poses": {
+                        "left_open": [0.0, -1.06, 0.0, 0.0, 0.0, 0.0],
+                        "right_open": [0.0, 1.06, 0.0, 0.0, 0.0, 0.0],
+                    },
+                }
+            ],
+            elevator_specs=[],
+        )
+        model_calls = []
+        link_calls = []
+
+        _apply_initial_open_doors(
+            runtime,
+            model_calls.append,
+            link_calls.append,
+        )
+
+        self.assertEqual(len(model_calls), 1)
+        self.assertEqual(len(link_calls), 2)
+        self.assertEqual(model_calls[0].model_name, "dynamic_main_entrance")
+        self.assertEqual(
+            sorted(call.link_name for call in link_calls),
+            [
+                "dynamic_main_entrance::left_panel",
+                "dynamic_main_entrance::right_panel",
+            ],
+        )
+
     def test_updates_door_and_elevator_state(self) -> None:
         runtime = BuildingControlRuntime(
             door_specs=[

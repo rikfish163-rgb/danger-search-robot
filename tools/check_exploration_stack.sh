@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fail before a mission starts if one of the live sensor or result-pipeline
+# links is missing.  A running Gazebo process is not enough: the previous
+# false run had Livox data but no RGB/depth bridge, so YOLO silently saw zero
+# frames for the first room.
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source /opt/ros/noetic/setup.bash
+CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
+source "$CATKIN_DEVEL_SPACE/setup.bash"
+
+failures=0
+
+require_node() {
+  local node="$1"
+  if rosnode ping -c1 "$node" 2>&1 | grep -Fq "xmlrpc reply from"; then
+    echo "preflight node ok: $node"
+  else
+    echo "preflight node missing: $node" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+require_publisher() {
+  local topic="$1"
+  local expected_publishers="${2:-1}"
+  local info publishers count
+  info="$(timeout --foreground 8s rostopic info "$topic" 2>&1 || true)"
+  publishers="$(printf '%s\n' "$info" | awk '
+    /^Publishers:/ { in_publishers = 1; next }
+    /^Subscribers:/ { in_publishers = 0 }
+    in_publishers && /^[[:space:]]*\*[[:space:]]/ { print }
+  ' || true)"
+  count="$(printf '%s\n' "$publishers" | sed '/^[[:space:]]*$/d' | wc -l)"
+  if [ "$count" -eq "$expected_publishers" ]; then
+    echo "preflight publisher ok: $topic ($count)"
+  else
+    echo "preflight publisher missing/ambiguous: $topic (expected $expected_publishers, got $count)" >&2
+    printf '%s\n' "$info" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+require_service() {
+  local service="$1"
+  if rosservice list 2>/dev/null | grep -Fxq "$service"; then
+    echo "preflight service ok: $service"
+  else
+    echo "preflight service missing: $service" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+if ! timeout --foreground 8s rosservice list >/dev/null 2>&1; then
+  echo "preflight failed: ROS master is not reachable at ${ROS_MASTER_URI:-unset}" >&2
+  exit 78
+fi
+
+move_base_package="$(rospack find move_base 2>/dev/null || true)"
+teb_package="$(rospack find teb_local_planner 2>/dev/null || true)"
+move_base_executable=""
+if [ -n "$move_base_package" ]; then
+  move_base_executable="$(dirname "$move_base_package")/../lib/move_base/move_base"
+fi
+if [ -z "$move_base_package" ] || [ ! -x "$move_base_executable" ] || [ -z "$teb_package" ]; then
+  echo "preflight failed: move_base/TEB is missing from the ROS runtime image" >&2
+  echo "install the repository's fixed runtime image before starting a mission" >&2
+  exit 78
+fi
+
+for node in \
+  /gazebo_sim_rgb_bridge \
+  /gazebo_sim_depth_bridge \
+  /yolo_detector_node \
+  /danger_localization_node \
+  /danger_result_writer \
+  /fastlio_2d_projection \
+  /mapping_health_watchdog; do
+  require_node "$node"
+done
+
+# Exactly one publisher is expected for the mission's bridged streams.  This
+# catches both the missing-bridge case and accidental duplicate stacks.
+require_publisher /clock
+require_publisher /livox/Pointcloud2
+require_publisher /sim_rgb/image_raw
+require_publisher /sim_depth/points
+require_publisher /yolo/detections
+require_publisher /map_raw
+require_publisher /map_confirmed
+require_publisher /mapping_healthy
+
+for service in \
+  /gazebo/get_model_state \
+  /gazebo/set_model_state \
+  /call_elevator \
+  /fastlio_2d_projection/save_current_floor \
+  /danger_result_writer/reset \
+  /target_manager/reset; do
+  require_service "$service"
+done
+
+mapping_health_ok=0
+health_deadline=$((SECONDS + ${MAPPING_HEALTH_TIMEOUT_SECONDS:-20}))
+while [ "$SECONDS" -lt "$health_deadline" ]; do
+  health_payload="$(timeout --foreground 4s rostopic echo -n1 /mapping_healthy 2>/dev/null || true)"
+  if printf '%s\n' "$health_payload" | grep -Eiq 'data:[[:space:]]*(true|1)[[:space:]]*$'; then
+    mapping_health_ok=1
+    echo "preflight mapping health ok"
+    break
+  fi
+  sleep 1
+done
+if [ "$mapping_health_ok" -ne 1 ]; then
+  echo "preflight mapping health FAILED" >&2
+  timeout --foreground 4s rostopic echo -n1 /mapping_health >&2 || true
+  failures=$((failures + 1))
+fi
+
+if [ "${CHECK_NAVIGATION_RUNTIME:-0}" = "1" ]; then
+  for node in /unitree_gazebo_servo /move_base /cmd_vel_arbiter; do
+    require_node "$node"
+  done
+  require_publisher /cmd_vel
+  require_publisher /cmd_vel_nav
+  require_service /move_base/make_plan
+  require_service /move_base/GlobalPlanner/make_plan
+  navigation_ready_timeout="${NAVIGATION_READY_TIMEOUT_SECONDS:-30}"
+  if timeout --foreground "${navigation_ready_timeout}s" \
+      python3 "$ROOT_DIR/tools/check_navigation_ready.py" \
+      --timeout "$navigation_ready_timeout"; then
+    echo "preflight navigation readiness ok"
+  else
+    echo "preflight navigation readiness FAILED" >&2
+    failures=$((failures + 1))
+  fi
+fi
+
+if [ "$failures" -ne 0 ]; then
+  echo "exploration stack preflight FAILED: $failures check(s)" >&2
+  exit 78
+fi
+
+echo "exploration stack preflight PASS"

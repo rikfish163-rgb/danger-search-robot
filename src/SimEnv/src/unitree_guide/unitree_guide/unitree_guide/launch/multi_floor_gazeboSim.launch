@@ -23,6 +23,8 @@
     <arg name="enable_joy_node" default="false"/>
     <arg name="enable_pointcloud_converter" default="true"/>
     <arg name="pointcloud_use_ground_truth_odom" default="true"/>
+    <!-- state_from_gazebo owns truth odom->base in the deterministic profile. -->
+    <arg name="publish_odom_tf" default="false"/>
     <arg name="controller_spawner_timeout" default="$(optenv CONTROLLER_SPAWNER_TIMEOUT 120)"/>
 
     <arg name="world_file" default="$(optenv BUILDING_WORLD_FILE)"/>
@@ -32,6 +34,7 @@
     <arg name="robot_yaw" default="$(optenv COMPETITION_ROBOT_YAW 1.5708)"/>
 
     <param name="world_file" value="$(arg world_file)"/>
+    <param name="publish_odom_tf" value="$(arg publish_odom_tf)"/>
 
     <include file="$(find gazebo_ros)/launch/empty_world.launch">
         <arg name="world_name" value="$(arg world_file)"/>

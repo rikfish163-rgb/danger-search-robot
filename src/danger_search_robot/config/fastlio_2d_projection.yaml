@@ -20,7 +20,10 @@ origin_y: -50.0
 
 # 高度过滤：相对当前传感器高度计算，因此可跨楼层使用
 use_sensor_relative_height: true
-min_obstacle_height: -0.25
+# The generated entrance apron is 0.08 m high and the simulated sensor is
+# about 0.31 m above world z=0.  A -0.25 m lower bound classifies its top as
+# an obstacle; keep the 2-D layer above the floor/apron surface.
+min_obstacle_height: -0.15
 max_obstacle_height: 1.20
 
 min_range: 0.30
@@ -54,6 +57,10 @@ point_stride: 1
 max_rays_per_scan: 5000
 publish_rate: 2.0
 tf_timeout: 0.20
+# Sensor and TF publishers may differ by a few milliseconds at startup.  A
+# latest-transform fallback is allowed only within this skew; stale clouds
+# remain fail-closed.
+tf_latest_fallback_max_skew: 0.05
 reject_zero_stamp: true
 
 # ============================================================
@@ -62,10 +69,10 @@ reject_zero_stamp: true
 floor_persistence_enabled: true
 
 # elevator_floor_transition.py 维护的权威楼层文件
-floor_state_file: /root/catkin_ws/results/floor_state.json
+floor_state_file: /root/catkin_native/ros1_runtime/mission_state/floor_state.json
 
 # 每层完整内部状态保存位置
-floor_maps_root: /root/catkin_ws/results/floors
+floor_maps_root: /root/catkin_native/ros1_runtime/floors
 
 initial_floor: 0
 floor_count: 3

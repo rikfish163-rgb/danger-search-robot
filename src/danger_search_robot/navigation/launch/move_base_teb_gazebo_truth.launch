@@ -1,5 +1,8 @@
 <launch>
   <arg name="robot_base_frame" default="body" />
+  <!-- TEB uses the continuously cleared projection; Graph-NBV keeps the
+       conservative confirmed layer for candidate and clearance checks. -->
+  <arg name="map_topic" default="/map_raw" />
   <!--
     Container/Gazebo validation profile.
     state_from_gazebo publishes odom -> base and /Odometry_gazebo.
@@ -8,7 +11,7 @@
   -->
   <node pkg="move_base" type="move_base" name="move_base"
         output="screen" clear_params="true">
-    <remap from="cmd_vel" to="/cmd_vel"/>
+    <remap from="cmd_vel" to="/cmd_vel_nav"/>
 
     <rosparam file="$(find danger_search_robot)/navigation/config/costmap_common_teb.yaml"
               command="load" ns="global_costmap"/>
@@ -26,8 +29,10 @@
     <!-- Override the body/FAST-LIO defaults loaded above. -->
     <param name="global_costmap/global_frame" value="world"/>
     <param name="global_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="global_costmap/static_layer/map_topic" value="$(arg map_topic)"/>
     <param name="local_costmap/global_frame" value="world"/>
     <param name="local_costmap/robot_base_frame" value="$(arg robot_base_frame)"/>
+    <param name="local_costmap/static_layer/map_topic" value="$(arg map_topic)"/>
     <param name="TebLocalPlannerROS/odom_topic" value="/Odometry_gazebo"/>
     <param name="TebLocalPlannerROS/map_frame" value="world"/>
 
@@ -41,6 +46,18 @@
     <param name="oscillation_distance" value="0.20"/>
   </node>
 
-  <!-- The override node is deliberately disabled: TEB commands reach the
-       controller directly, so no emergency forward-only behavior is injected. -->
+  <!-- Single writer for the final controller command.  Navigation, direct
+       entrance/recovery, and timeout safety commands use separate leases. -->
+  <node pkg="danger_search_robot"
+        type="cmd_vel_arbiter.py"
+        name="cmd_vel_arbiter"
+        output="screen"
+        respawn="false"
+        required="true">
+    <param name="output_topic" value="/cmd_vel"/>
+    <param name="navigation_topic" value="/cmd_vel_nav"/>
+    <param name="exploration_topic" value="/cmd_vel_exploration"/>
+    <param name="direct_topic" value="/cmd_vel_direct"/>
+    <param name="safety_topic" value="/cmd_vel_safety"/>
+  </node>
 </launch>

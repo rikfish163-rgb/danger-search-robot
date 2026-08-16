@@ -58,8 +58,11 @@ def atomic_write(path, payload):
 
 class Reanchor:
     def __init__(self):
-        self.state_file = Path(os.path.expanduser(rospy.get_param('~state_file', '~/catkin_ws/results/floor_state.json')))
-        self.anchor_file = Path(os.path.expanduser(rospy.get_param('~anchor_file', '~/catkin_ws/results/floor_transition_anchor.json')))
+        runtime_root = os.environ.get('ROS1_RUNTIME_ROOT', '/root/catkin_native/ros1_runtime')
+        default_state = os.path.join(runtime_root, 'mission_state', 'floor_state.json')
+        default_anchor = os.path.join(runtime_root, 'mission_state', 'floor_transition_anchor.json')
+        self.state_file = Path(os.path.expanduser(rospy.get_param('~state_file', default_state)))
+        self.anchor_file = Path(os.path.expanduser(rospy.get_param('~anchor_file', default_anchor)))
         self.world_frame = rospy.get_param('~world_frame', 'world')
         self.level_frame = rospy.get_param('~level_frame', 'map_level')
         self.body_frame = rospy.get_param('~body_frame', 'body')

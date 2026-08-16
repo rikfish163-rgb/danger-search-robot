@@ -25,8 +25,10 @@ FSMStateName State_move_base::checkChange(){
 }
 
 void State_move_base::getUserCmd(){
-    setHighCmd(_vx, _vy, _wz);
+    // Process the callback first.  The previous order used the previous
+    // (and originally uninitialised) command for the first control cycle.
     ros::spinOnce();
+    setHighCmd(_vx, _vy, _wz);
 }
 
 void State_move_base::twistCallback(const geometry_msgs::Twist& msg){

@@ -21,8 +21,12 @@ private:
     void twistCallback(const geometry_msgs::Twist& msg);
     ros::NodeHandle _nm;
     ros::Subscriber _cmdSub;
-    double _vx, _vy;
-    double _wz;
+    // A move_base state can be entered before the first /cmd_vel callback.
+    // Start from a hard stop instead of feeding indeterminate stack values
+    // into the gait controller for one control cycle.
+    double _vx = 0.0;
+    double _vy = 0.0;
+    double _wz = 0.0;
 };
 
 #endif  // STATE_MOVE_BASE_H

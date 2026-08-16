@@ -441,9 +441,12 @@
                 </xacro:if>
             </sensor>
             <!--
-                Keep depth in Gazebo transport instead of loading the
-                crash-prone OpenNI ROS plugin.  A small bridge converts the
-                native R_FLOAT32 depth image to sensor_msgs/PointCloud2.
+                Keep depth in Gazebo transport.  The competition stack's
+                gazebo_depth_to_pointcloud bridge converts the native
+                R_FLOAT32 depth image to sensor_msgs/PointCloud2.  Do not
+                load libgazebo_ros_depth_camera here: it shares the
+                real_sense cameraName with the RGB plugin and attempts to
+                register the same /real_sense/set_camera_info service.
             -->
             <sensor type="depth" name="real_sense_depth">
                 <always_on>true</always_on>
@@ -460,18 +463,6 @@
                         <far>8.0</far>
                     </clip>
                 </camera>
-                <plugin name="real_sense_depth_controller" filename="libgazebo_ros_depth_camera.so">
-                    <cameraName>real_sense</cameraName>
-                    <alwaysOn>true</alwaysOn>
-                    <updateRate>10.0</updateRate>
-                    <imageTopicName>depth/image_raw</imageTopicName>
-                    <depthImageTopicName>depth/image_raw</depthImageTopicName>
-                    <pointCloudTopicName>depth/points</pointCloudTopicName>
-                    <cameraInfoTopicName>depth/camera_info</cameraInfoTopicName>
-                    <depthImageCameraInfoTopicName>depth/camera_info</depthImageCameraInfoTopicName>
-                    <frameName>real_sense_optical_frame</frameName>
-                    <pointCloudCutoff>0.05</pointCloudCutoff>
-                </plugin>
             </sensor>
         </gazebo>
     </xacro:if>
