@@ -120,6 +120,9 @@ tools/run_three_floor_rerun.sh
 - 三层四房间场景种子 `3632072`，危险源 4 个、干扰物 8 个；场景生成物已锁定在
   `generated_building/`，入口台阶修复也已锁定在生成器 exporter 中；
 - 固定运行时包含 RGB/depth bridge，且 YOLO/投影节点的原生二进制 SHA256 也会在启动前检查。
+- 原生构建树运行时放在 `/dev/shm/ros1_recovery` 以避免 NTFS I/O 卡死，同时保留了宿主机备份
+  `/media/hetaisheng/044A81D94A81C83E/ros1_isolated_local/ros1_fixed_native_20260816.tar.zst`；如果重启后
+  `/dev/shm` 被清空，固定入口会先校验备份 SHA256 并自动恢复，不需要重新编译。
 
 下一次在本机直接执行，不要手工重新拼启动顺序：
 

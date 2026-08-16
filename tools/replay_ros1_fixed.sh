@@ -53,6 +53,10 @@ The normal next-run command is:
 
 Set ALLOW_BASELINE_DRIFT=1 only for deliberate debugging of a changed checkout.
 It does not change the Docker image or native-binary checks.
+
+If /dev/shm was cleared, the native build/devel backup is restored automatically
+from BASELINE_NATIVE_ARCHIVE_HOST.  If that host backup is unavailable, build
+the native trees explicitly with tools/ros1_fixed_container.sh build.
 EOF
 }
 
@@ -173,6 +177,35 @@ require_fixed_image() {
   echo "image contract PASS: $IMAGE_REF ($actual_id)"
 }
 
+native_host_ready() {
+  local controller_path="$BASELINE_NATIVE_BUILD_HOST/unitree_devel/lib/unitree_guide/junior_ctrl"
+  local projection_path="$BASELINE_NATIVE_BUILD_HOST/danger_devel/lib/danger_search_robot/nearest_azimuth_projection_node"
+  [ -x "$controller_path" ] && [ -x "$projection_path" ] || return 1
+  [ "$(sha256sum "$controller_path" | awk '{print $1}')" = "$BASELINE_CONTROLLER_SHA256" ] || return 1
+  [ "$(sha256sum "$projection_path" | awk '{print $1}')" = "$BASELINE_PROJECTION_SHA256" ] || return 1
+}
+
+ensure_native_runtime() {
+  if native_host_ready; then
+    echo "native host backup contract PASS: $BASELINE_NATIVE_BUILD_HOST"
+    return 0
+  fi
+
+  local archive_host="${ROS1_NATIVE_ARCHIVE_HOST:-$BASELINE_NATIVE_ARCHIVE_HOST}"
+  [ -f "$archive_host" ] || die "native runtime is missing or changed at $BASELINE_NATIVE_BUILD_HOST and backup is unavailable: $archive_host"
+  local archive_sha
+  archive_sha="$(sha256sum "$archive_host" | awk '{print $1}')"
+  [ "$archive_sha" = "$BASELINE_NATIVE_ARCHIVE_SHA256" ] || \
+    die "native backup SHA256 mismatch: expected=$BASELINE_NATIVE_ARCHIVE_SHA256 actual=$archive_sha"
+
+  echo "restoring native build/devel trees into $BASELINE_NATIVE_BUILD_HOST from $archive_host"
+  mkdir -p "$BASELINE_NATIVE_BUILD_HOST"
+  timeout --foreground "${NATIVE_RESTORE_TIMEOUT_SECONDS:-180}s" \
+    tar --zstd -xpf "$archive_host" -C "$BASELINE_NATIVE_BUILD_HOST"
+  native_host_ready || die "native backup restored but binary hashes still do not match the baseline"
+  echo "native host restore PASS: controller=$BASELINE_CONTROLLER_SHA256 projection=$BASELINE_PROJECTION_SHA256"
+}
+
 validate_container_contract() {
   container_running || die "fixed container is not running: $CONTAINER_NAME"
 
@@ -211,6 +244,7 @@ ensure_container() {
   validate_git_contract
   validate_scene_contract
   require_fixed_image
+  ensure_native_runtime
   "$CONTAINER_HELPER" up
   "$CONTAINER_HELPER" check
   validate_container_contract
