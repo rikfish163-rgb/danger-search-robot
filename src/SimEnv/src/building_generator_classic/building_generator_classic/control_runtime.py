@@ -63,6 +63,20 @@ class BuildingControlRuntime:
             for spec in elevator_specs
         }
 
+    def initial_open_door_ids(self) -> tuple[str, ...]:
+        """Return doors that must be opened when Gazebo is first spawned.
+
+        The generated SDF starts dynamic panels in their closed poses.  The
+        ``initial_open`` flag is runtime state, so the ROS adapter must apply
+        it once after the Gazebo services become available.
+        """
+
+        return tuple(
+            door_id
+            for door_id, state in self._doors.items()
+            if state.is_open
+        )
+
     def set_door_state(self, door_id: str, open_state: bool) -> dict[str, Any]:
         if door_id not in self._doors:
             return {

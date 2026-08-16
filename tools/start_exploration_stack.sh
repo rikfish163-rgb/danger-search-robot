@@ -11,6 +11,8 @@ mkdir -p "$RUNTIME_DIR"
 source /opt/ros/noetic/setup.bash
 CATKIN_DEVEL_SPACE="${CATKIN_DEVEL_SPACE:-$ROOT_DIR/devel}"
 source "$CATKIN_DEVEL_SPACE/setup.bash"
+source "$ROOT_DIR/tools/ros1_runtime_paths.sh"
+FLOOR_COUNT="${FLOOR_COUNT:-3}"
 
 node_present() {
   # rosnode list can retain a dead XML-RPC registration briefly after a
@@ -78,6 +80,22 @@ start_launch() {
   done
 }
 
+wait_for_sensor_topic() {
+  local topic="$1"
+  local deadline=$((SECONDS + ${SENSOR_TOPIC_TIMEOUT_SECONDS:-30}))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local sample
+    sample="$(timeout --foreground 6s rostopic hz "$topic" 2>&1 || true)"
+    if grep -q "average rate" <<<"$sample"; then
+      echo "sensor topic ready: $topic"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "sensor topic has no frames: $topic" >&2
+  return 1
+}
+
 if ! timeout --foreground 8s rosservice list >/dev/null 2>&1; then
   echo "ROS master is not reachable at ${ROS_MASTER_URI:-unset}" >&2
   exit 78
@@ -109,24 +127,83 @@ start_binary /gazebo_sim_depth_bridge gazebo_sim_depth_bridge.log \
   /sim_depth/points real_sense_depth_optical_frame 1.0472 \
   __name:=gazebo_sim_depth_bridge
 
+# A registered bridge process is not enough: Gazebo can expose the transport
+# topic while its render context is unavailable.  Fail before YOLO starts so a
+# mission can never silently run with active=0 and no RGB/depth frames.
+wait_for_sensor_topic /sim_rgb/image_raw
+wait_for_sensor_topic /sim_depth/points
+
+# Door/elevator services are part of the runnable mission contract.  Starting
+# this node here makes a clean fixed-container restart equivalent to the
+# previously manual command and lets the preflight check fail early if the
+# generated scene/config pair is inconsistent.
+start_binary /building_generator_classic_control building_generator_classic_control.log \
+  python3 "$ROOT_DIR/src/SimEnv/src/building_generator_classic/scripts/building_generator_classic_control" \
+  --door-config "$ROOT_DIR/generated_building/door_config.yaml" \
+  --elevator-config "$ROOT_DIR/generated_building/elevator_config.yaml"
+
 start_launch vision_stack.log \
   "/yolo_detector_node /danger_localization_node /danger_result_writer" \
   roslaunch danger_search_robot vision_stack.launch \
   image_topic:=/sim_rgb/image_raw pointcloud_topic:=/sim_depth/points \
-  yolo_start_delay:=8 reset_results:=true start_recording:=true
+  yolo_start_delay:=8 reset_results:=true start_recording:=true \
+  runtime_result_file:="$ROS1_RUNTIME_RESULT_FILE"
 
-start_launch fastlio_2d_projection.log \
-  /fastlio_2d_projection \
-  roslaunch danger_search_robot fastlio_2d_projection.launch \
-  input_cloud_topic:=/livox/Pointcloud2 sensor_frame:=body \
-  clear_all_floor_maps:=true
+if node_present /danger_result_writer; then
+  active_result_file="$(rosparam get /danger_result_writer/runtime_result_file 2>/dev/null || true)"
+  if [ "$active_result_file" != "$ROS1_RUNTIME_RESULT_FILE" ]; then
+    echo "refusing stale result-writer runtime: result=$active_result_file" >&2
+    echo "expected result=$ROS1_RUNTIME_RESULT_FILE" >&2
+    exit 79
+  fi
+fi
+
+projection_binary="${DANGER_PROJECTION_BINARY:-/root/catkin_native/danger_devel/lib/danger_search_robot/nearest_azimuth_projection_node}"
+if node_present /fastlio_2d_projection; then
+  active_state_file="$(rosparam get /fastlio_2d_projection/floor_state_file 2>/dev/null || true)"
+  active_maps_root="$(rosparam get /fastlio_2d_projection/floor_maps_root 2>/dev/null || true)"
+  if [ "$active_state_file" != "$ROS1_RUNTIME_STATE_DIR/floor_state.json" ] || \
+     [ "$active_maps_root" != "$ROS1_RUNTIME_MAPS_DIR" ]; then
+    echo "refusing stale projection runtime: state=$active_state_file maps=$active_maps_root" >&2
+    echo "expected state=$ROS1_RUNTIME_STATE_DIR/floor_state.json maps=$ROS1_RUNTIME_MAPS_DIR" >&2
+    exit 79
+  fi
+  echo "support node already running: /fastlio_2d_projection (native runtime paths verified)"
+elif [ -x "$projection_binary" ]; then
+  projection_log="$RUNTIME_DIR/fastlio_2d_projection.log"
+  echo "starting native /fastlio_2d_projection -> $projection_log"
+  rosparam load "$ROOT_DIR/src/danger_search_robot/config/fastlio_2d_projection.yaml" \
+    /fastlio_2d_projection
+  rosparam set /fastlio_2d_projection/input_cloud_topic /livox/Pointcloud2
+  rosparam set /fastlio_2d_projection/sensor_frame body
+  rosparam set /fastlio_2d_projection/floor_state_file "$ROS1_RUNTIME_STATE_DIR/floor_state.json"
+  rosparam set /fastlio_2d_projection/floor_maps_root "$ROS1_RUNTIME_MAPS_DIR"
+  rosparam set /fastlio_2d_projection/floor_count "$FLOOR_COUNT"
+  rosparam set /fastlio_2d_projection/clear_all_floor_maps true
+  nohup "$projection_binary" __name:=fastlio_2d_projection \
+    >"$projection_log" 2>&1 &
+  echo $! >"$RUNTIME_DIR/fastlio_2d_projection.pid"
+  wait_for_node /fastlio_2d_projection "$projection_log"
+else
+  start_launch fastlio_2d_projection.log \
+    /fastlio_2d_projection \
+    roslaunch danger_search_robot mapping/launch/fastlio_2d_projection.launch \
+    input_cloud_topic:=/livox/Pointcloud2 sensor_frame:=body \
+    clear_all_floor_maps:=true \
+    floor_state_file:="$ROS1_RUNTIME_STATE_DIR/floor_state.json" \
+    floor_maps_root:="$ROS1_RUNTIME_MAPS_DIR" \
+    floor_count:="$FLOOR_COUNT"
+fi
 
 start_binary /mapping_health_watchdog mapping_health_watchdog.log \
   python3 "$ROOT_DIR/src/danger_search_robot/scripts/mapping_health_watchdog.py" \
   _cloud_topic:=/livox/Pointcloud2 \
-  _map_topic:=/map_confirmed \
+  _map_topic:=/map_raw \
+  _confirmed_map_topic:=/map_confirmed \
+  _expected_map_frame:=world \
   _status_topic:=/fastlio_2d_projection/status \
   _max_cloud_age:=0.75 \
-  _max_map_age:=1.25
+  _max_map_age:=1.25 \
+  _max_wall_silence:=8.0
 
 "$ROOT_DIR/tools/check_exploration_stack.sh"

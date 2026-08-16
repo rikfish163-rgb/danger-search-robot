@@ -32,6 +32,11 @@
   <arg name="start_recording"
        default="true"/>
 
+  <!-- Keep high-frequency result writes on the native runtime filesystem;
+       the public workspace file is published at reset/finalize time. -->
+  <arg name="runtime_result_file"
+       default="$(optenv ROS1_RUNTIME_ROOT /root/catkin_native/ros1_runtime)/detected_danger.json"/>
+
   <arg name="publish_debug"
        default="false"/>
 
@@ -62,6 +67,9 @@
 
     <param name="expected_frame"
            value="world"/>
+
+    <param name="runtime_result_file"
+           value="$(arg runtime_result_file)"/>
 
   </node>
 

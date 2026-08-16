@@ -75,11 +75,13 @@ SimEnv → 站立(按2) → livox bridge → FAST-LIO → level_tf → world标�
 当前工作区使用一个固定的 ROS Noetic 镜像 digest，并且只允许一个专用容器挂载本工作区：
 
 ```text
-image:   osrf/ros@sha256:7dbfb9576d8e6d226c31e06129a82aaab8702695f38eca2116918cb9b9308797
+image:   danger-search-robot/ros1-fixed:20260816
+base:    osrf/ros@sha256:7dbfb9576d8e6d226c31e06129a82aaab8702695f38eca2116918cb9b9308797
 mount:   <this workspace> -> /root/catkin_ws
 deps:    /media/hetaisheng/044A81D94A81C83E/ros1_isolated_local/deps (read-only)
-network: ros1-simenv-fixed (private bridge)
+network: ros1-simenv-recovery (private bridge)
 ROS:     http://127.0.0.1:11311 inside the container
+container: simenv-ros1-recovery
 ```
 
 宿主机从本工作区执行：
@@ -90,10 +92,10 @@ tools/ros1_fixed_container.sh status
 tools/ros1_fixed_container.sh exec bash
 ```
 
-不要同时运行旧的 `simenv-run0810*` 容器；启动脚本会拒绝这种共享工作区/ROS 状态的情况。进入容器后，先启动 roscore 和 `src/SimEnv/auto.sh`，将 `START_CAMERA_BRIDGES=1` 固定打开，再使用下面的固定启动顺序：
+不要同时运行旧的 `simenv-run0810*` 或其他 `simenv-ros1-*` 容器；启动脚本会拒绝这种共享工作区/ROS 状态的情况。进入容器后，先启动 roscore 和 `src/SimEnv/auto.sh`，将 `START_CAMERA_BRIDGES=1` 固定打开，再使用下面的固定启动顺序：
 
 ```bash
-docker exec -it simenv-ros1-fixed bash
+docker exec -it simenv-ros1-recovery bash
 source /opt/ros/noetic/setup.bash
 source /root/catkin_ws/devel/setup.bash
 nohup roscore > /tmp/roscore_fixed.log 2>&1 < /dev/null &

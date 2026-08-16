@@ -1,5 +1,7 @@
 # Graph NBV Stage B.3.1 — manual gate startup
 
+# Graph-NBV and move_base use the same confirmed layer for exploration and
+# navigation decisions.  /map_raw remains the projection/watchdog input.
 map_topic: /map_confirmed
 global_frame: world
 base_frame: body
@@ -24,7 +26,9 @@ manual_gate_use_robot_heading: true
 manual_gate_forward_x: 1.0
 manual_gate_forward_y: 0.0
 
-cmd_vel_topic: /cmd_vel
+# Graph only owns short initial/recovery commands.  The arbiter is the sole
+# publisher of the final /cmd_vel consumed by the robot controller.
+cmd_vel_topic: /cmd_vel_exploration
 odom_frame: odom
 odom_base_frame: base
 
@@ -60,9 +64,34 @@ manual_gate_wait_timeout: 30.0
 local_sampling_radius: 8.0
 candidate_spacing: 0.60
 min_candidate_clearance: 0.30
+# The candidate clearance is a graph-sampling floor, not a safe navigation
+# clearance for the robot footprint.  The generated room doors are 1.20 m
+# wide; with the 0.20 m robot radius, a 0.30 m map clearance is the smallest
+# doorway-centre margin that still leaves a bounded passage.  Keeping this at
+# the sampling floor prevents the graph from rejecting every room entrance.
+min_target_clearance: 0.30
+min_local_utility: 0.50
+# TEB's real-time feasibility can reject a graph path that is geometrically
+# valid but requires a long turn/doorway maneuver in one action.  Keep local
+# viewpoints incremental; whole-map relocation remains available for longer
+# routes.
+max_local_path_cost: 5.0
 edge_max_length: 2.20
 edge_collision_step: 0.10
+# Transit edges use the same bounded doorway margin.  TEB still checks the
+# live costmap and the graph's occupied-cell collision test rejects walls.
+min_edge_clearance: 0.30
 max_local_nodes: 550
+
+# Ignore unknown space outside the generated building and leave a wall-side
+# safety band.  These floor-local bounds retain the corridor/room interiors
+# and the 1.20 m room door gaps, while preventing the global frontier scorer
+# from selecting cells where the A1 footprint has little turning margin.
+exploration_bounds_enabled: true
+exploration_x_min: -8.60
+exploration_x_max: 8.60
+exploration_y_min: 7.40
+exploration_y_max: 34.80
 
 # Visibility-aware information gain.
 information_radius: 3.50
@@ -90,6 +119,15 @@ global_approach_max_distance: 4.00
 global_candidates_per_component: 3
 global_max_plan_checks: 18
 global_plan_tolerance: 0.30
+# A floor-scale relocation can legitimately be about 30 m.  Keep the guard
+# below the multi-floor/teleport scale without blocking a complete one-floor
+# room sweep after the forward gate is exhausted.
+max_global_path_cost: 35.0
+# Keep each move_base action short enough to replan before a doorway or a
+# low-clearance corner.  The complete make_plan path is still used for
+# reachability and utility; after each leg the frontier search is rerun
+# against the refreshed map.
+max_global_leg_distance: 4.5
 weight_global_frontier_size: 0.04
 weight_global_path_cost: 0.30
 weight_global_revisit: 2.50
@@ -98,19 +136,50 @@ weight_global_revisit: 2.50
 coverage_radius: 0.90
 goal_min_distance: 0.70
 goal_max_distance: 30.0
-goal_timeout: 120.0
+goal_timeout: 180.0
 goal_reached_radius: 0.60
-no_progress_timeout: 15.0
+# The controller can spend several seconds turning/settling before its first
+# effective translational command.  Fifteen seconds caused reachable room
+# legs to be blacklisted before the escape recovery had useful evidence.
+no_progress_timeout: 28.0
 progress_epsilon: 0.20
 blacklist_radius: 1.00
 global_empty_cycles_to_finish: 30
 plan_period: 1.50
 
+# A successful search must return to the measured gate origin.  The return
+# route uses the same bounded-leg policy and bypasses the one-way exploration
+# gate, which is only a search-order constraint.
+return_to_start_enabled: true
+return_goal_tolerance: 0.75
+# Return legs are intentionally shorter than exploration relocations.  A
+# failed doorway/corner leg is replanned from the current pose instead of
+# aborting the whole mission immediately.
+return_max_leg_distance: 2.50
+return_goal_retry_limit: 2
+
 # Goal lifecycle and health guard.
 goal_recovery_pause: 2.0
+# A failed action can leave the robot too close to a wall for TEB to rotate.
+# Reverse only along a short, known-free map segment, then replan.
+recovery_escape_enabled: true
+recovery_escape_duration: 2.4
+recovery_escape_speed: 0.20
+recovery_escape_distance: 0.55
+recovery_escape_min_clearance: 0.30
+recovery_escape_start_clearance: 0.18
 max_consecutive_goal_failures: 5
 map_freshness_timeout: 5.0
 tf_freshness_timeout: 2.0
+# The mapping watchdog is a lease.  A short outage pauses/cancels the active
+# goal; only a prolonged outage becomes a safe mission abort.
+require_mapping_health: true
+mapping_health_topic: /mapping_healthy
+mapping_health_detail_topic: /mapping_health
+mapping_health_timeout: 2.5
+health_abort_timeout: 45.0
+# Retained for compatibility with older parameter files; the timeout above is
+# the authoritative abort gate for transient health faults.
 health_failure_limit: 3
 # Reject numerically divergent TF poses before they reach graph planning.
 max_pose_abs: 200.0

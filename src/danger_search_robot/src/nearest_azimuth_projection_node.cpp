@@ -238,6 +238,7 @@ private:
     pnh_.param("max_rays_per_scan", max_rays_per_scan_, 5000);
     pnh_.param("publish_rate", publish_rate_, 2.0);
     pnh_.param("tf_timeout", tf_timeout_, 0.20);
+    pnh_.param("tf_latest_fallback_max_skew", tf_latest_fallback_max_skew_, 0.05);
     pnh_.param("reject_zero_stamp", reject_zero_stamp_, true);
 
     pnh_.param("floor_persistence_enabled", floor_persistence_enabled_, true);
@@ -294,6 +295,9 @@ private:
     confirmation_spatial_tolerance_cells_ =
       std::max(0, std::min(5, confirmation_spatial_tolerance_cells_));
     publish_rate_ = publish_rate_ > 0.0 ? publish_rate_ : 1.0;
+    tf_timeout_ = tf_timeout_ > 0.0 ? tf_timeout_ : 0.20;
+    tf_latest_fallback_max_skew_ =
+      tf_latest_fallback_max_skew_ > 0.0 ? tf_latest_fallback_max_skew_ : 0.05;
     if (floor_count_ <= 0 || initial_floor_ < 0 || initial_floor_ >= floor_count_)
     {
       throw std::runtime_error("floor_count or initial_floor is invalid");
@@ -816,6 +820,33 @@ private:
     }
     catch (const tf2::TransformException& error)
     {
+      // A simulated sensor and its TF broadcaster can be separated by a few
+      // milliseconds at startup.  An exact-time lookup then fails with
+      // "extrapolation into the past" even though a current transform is
+      // already available.  Use the latest transform only when the skew is
+      // explicitly bounded; stale clouds must still fail closed.
+      if (!stamp.isZero())
+      {
+        try
+        {
+          const geometry_msgs::TransformStamped latest = tf_buffer_.lookupTransform(
+            target, source, ros::Time(0), ros::Duration(tf_timeout_));
+          const double skew = (latest.header.stamp - stamp).toSec();
+          if (std::isfinite(skew) && std::abs(skew) <= tf_latest_fallback_max_skew_)
+          {
+            tf2::fromMsg(latest.transform, output);
+            ROS_WARN_THROTTLE(
+              5.0,
+              "Using latest TF (%s <- %s) for cloud timestamp skew %.3fs",
+              target.c_str(), source.c_str(), skew);
+            return true;
+          }
+        }
+        catch (const tf2::TransformException&)
+        {
+          // Preserve the original exact-time error below.
+        }
+      }
       ROS_WARN_THROTTLE(2.0, "TF lookup failed (%s <- %s): %s", target.c_str(),
                         source.c_str(), error.what());
       return false;
@@ -1433,6 +1464,7 @@ private:
   double endpoint_guard_radius_{0.10};
   double publish_rate_{2.0};
   double tf_timeout_{0.20};
+  double tf_latest_fallback_max_skew_{0.05};
   double log_odds_hit_{0.0};
   double log_odds_miss_{0.0};
   double log_odds_min_{0.0};

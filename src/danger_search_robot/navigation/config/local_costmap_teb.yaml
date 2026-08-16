@@ -6,8 +6,12 @@ local_costmap:
   transform_tolerance: 0.5
   static_map: false
   rolling_window: true
-  width: 6.0
-  height: 6.0
+  # Keep the whole TEB look-ahead inside the rolling window when a frontier
+  # lies at the edge of the currently observed free space.  A 6x6 window
+  # placed the 3 m look-ahead on the unknown boundary and made valid global
+  # plans appear infeasible.
+  width: 8.0
+  height: 10.0
   resolution: 0.1
   plugins:
   - name: static_layer

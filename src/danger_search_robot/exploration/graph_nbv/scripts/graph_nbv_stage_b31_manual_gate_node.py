@@ -7,6 +7,7 @@ import heapq
 import importlib.util
 import json
 import math
+import time
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
@@ -31,9 +32,14 @@ try:
         failure_budget_exhausted,
         freshness_age,
         gate_exhaustion_reached,
+        mapping_health_ready,
+        path_point_at_distance,
+        path_cost_allowed,
+        point_is_blacklisted,
         pose_is_close,
         pose_is_reasonable,
         pose_samples_stable,
+        return_retry_available,
     )
 except ImportError:
     # catkin's devel relay executes this source file while keeping the relay
@@ -51,9 +57,14 @@ except ImportError:
     failure_budget_exhausted = _policy_module.failure_budget_exhausted
     freshness_age = _policy_module.freshness_age
     gate_exhaustion_reached = _policy_module.gate_exhaustion_reached
+    mapping_health_ready = _policy_module.mapping_health_ready
+    path_point_at_distance = _policy_module.path_point_at_distance
+    path_cost_allowed = _policy_module.path_cost_allowed
+    point_is_blacklisted = _policy_module.point_is_blacklisted
     pose_is_close = _policy_module.pose_is_close
     pose_is_reasonable = _policy_module.pose_is_reasonable
     pose_samples_stable = _policy_module.pose_samples_stable
+    return_retry_available = _policy_module.return_retry_available
 
 
 @dataclass
@@ -219,14 +230,49 @@ class GraphNBVStageB31ManualGate:
         self.min_candidate_clearance = float(
             rospy.get_param("~min_candidate_clearance", 0.48)
         )
+        self.min_target_clearance = max(
+            self.min_candidate_clearance,
+            float(rospy.get_param("~min_target_clearance", 0.50)),
+        )
+        self.min_local_utility = float(
+            rospy.get_param("~min_local_utility", 0.50)
+        )
+        self.max_local_path_cost = float(
+            rospy.get_param("~max_local_path_cost", 9.0)
+        )
         self.edge_max_length = float(
             rospy.get_param("~edge_max_length", 2.20)
         )
         self.edge_collision_step = float(
             rospy.get_param("~edge_collision_step", 0.10)
         )
+        self.min_edge_clearance = max(
+            self.min_candidate_clearance,
+            float(rospy.get_param("~min_edge_clearance", 0.50)),
+        )
         self.max_local_nodes = int(
             rospy.get_param("~max_local_nodes", 550)
+        )
+
+        # The occupancy grid also contains unknown space outside the
+        # generated building.  Treating that as exploration frontier makes
+        # the global scorer spend time tracing exterior walls instead of
+        # entering rooms.  The bounds are floor-local and configurable so
+        # the same policy can be used after an elevator transition.
+        self.exploration_bounds_enabled = bool(
+            rospy.get_param("~exploration_bounds_enabled", True)
+        )
+        self.exploration_x_min = float(
+            rospy.get_param("~exploration_x_min", -8.60)
+        )
+        self.exploration_x_max = float(
+            rospy.get_param("~exploration_x_max", 8.60)
+        )
+        self.exploration_y_min = float(
+            rospy.get_param("~exploration_y_min", 7.40)
+        )
+        self.exploration_y_max = float(
+            rospy.get_param("~exploration_y_max", 34.80)
         )
 
         # Visibility-aware information gain
@@ -297,6 +343,13 @@ class GraphNBVStageB31ManualGate:
         self.global_plan_tolerance = float(
             rospy.get_param("~global_plan_tolerance", 0.30)
         )
+        self.max_global_path_cost = float(
+            rospy.get_param("~max_global_path_cost", 12.0)
+        )
+        self.max_global_leg_distance = max(
+            1.0,
+            float(rospy.get_param("~max_global_leg_distance", 4.5)),
+        )
         self.weight_global_frontier_size = float(
             rospy.get_param("~weight_global_frontier_size", 0.04)
         )
@@ -341,6 +394,42 @@ class GraphNBVStageB31ManualGate:
         self.goal_recovery_pause = float(
             rospy.get_param("~goal_recovery_pause", 2.0)
         )
+        self.return_to_start_enabled = bool(
+            rospy.get_param("~return_to_start_enabled", True)
+        )
+        self.return_goal_tolerance = max(
+            self.goal_reached_radius,
+            float(rospy.get_param("~return_goal_tolerance", 0.75)),
+        )
+        self.return_max_leg_distance = max(
+            1.0,
+            float(rospy.get_param(
+                "~return_max_leg_distance",
+                min(self.max_global_leg_distance, 2.5),
+            )),
+        )
+        self.return_goal_retry_limit = max(
+            0,
+            int(rospy.get_param("~return_goal_retry_limit", 2)),
+        )
+        self.recovery_escape_enabled = bool(
+            rospy.get_param("~recovery_escape_enabled", True)
+        )
+        self.recovery_escape_duration = float(
+            rospy.get_param("~recovery_escape_duration", 2.4)
+        )
+        self.recovery_escape_speed = float(
+            rospy.get_param("~recovery_escape_speed", 0.20)
+        )
+        self.recovery_escape_distance = float(
+            rospy.get_param("~recovery_escape_distance", 0.55)
+        )
+        self.recovery_escape_min_clearance = float(
+            rospy.get_param("~recovery_escape_min_clearance", 0.30)
+        )
+        self.recovery_escape_start_clearance = float(
+            rospy.get_param("~recovery_escape_start_clearance", 0.18)
+        )
         self.max_consecutive_goal_failures = max(
             1,
             int(rospy.get_param("~max_consecutive_goal_failures", 5)),
@@ -350,6 +439,21 @@ class GraphNBVStageB31ManualGate:
         )
         self.tf_freshness_timeout = float(
             rospy.get_param("~tf_freshness_timeout", 2.0)
+        )
+        self.require_mapping_health = bool(
+            rospy.get_param("~require_mapping_health", True)
+        )
+        self.mapping_health_topic = rospy.get_param(
+            "~mapping_health_topic", "/mapping_healthy"
+        )
+        self.mapping_health_detail_topic = rospy.get_param(
+            "~mapping_health_detail_topic", "/mapping_health"
+        )
+        self.mapping_health_timeout = float(
+            rospy.get_param("~mapping_health_timeout", 2.5)
+        )
+        self.health_abort_timeout = float(
+            rospy.get_param("~health_abort_timeout", 45.0)
         )
         self.health_failure_limit = max(
             1,
@@ -386,6 +490,8 @@ class GraphNBVStageB31ManualGate:
 
         self.current_local_goal: Optional[GraphNode] = None
         self.current_global_goal: Optional[GlobalTarget] = None
+        self.current_return_goal: Optional[Tuple[float, float, float]] = None
+        self.return_retry_count = 0
         self.current_goal_kind = ""
         self.current_goal_start = rospy.Time(0)
         self.last_goal_distance = float("inf")
@@ -402,11 +508,16 @@ class GraphNBVStageB31ManualGate:
         self.consecutive_goal_failures = 0
         self.recovery_until = rospy.Time(0)
         self.recovery_reason = ""
+        self.recovery_escape_until = rospy.Time(0)
+        self.recovery_escape_command = Twist()
+        self.recovery_escape_active = False
 
         self.blacklist: List[Tuple[float, float]] = []
         self.global_empty_cycles = 0
         self.finished = False
         self.aborted = False
+        self.finish_requested = False
+        self.finish_reason = ""
         self.exploration_state = "WAITING_FOR_MAP"
         self.state_changed_at = rospy.Time.now()
         self.last_status_text = ""
@@ -418,6 +529,11 @@ class GraphNBVStageB31ManualGate:
         self.last_robot_pose: Optional[Tuple[float, float, float]] = None
         self.health_failure_count = 0
         self.health_reason = ""
+        self.health_degraded_since = rospy.Time(0)
+        self.mapping_health_received = False
+        self.mapping_health_ok = False
+        self.mapping_health_received_wall: Optional[float] = None
+        self.mapping_health_detail = ""
         self.manual_gate_wait_start = rospy.Time(0)
         self.manual_gate_samples: List[Tuple[float, float, float]] = []
         self.gate_unlock_count = 0
@@ -481,6 +597,19 @@ class GraphNBVStageB31ManualGate:
             self.map_callback,
             queue_size=1,
         )
+        rospy.Subscriber(
+            self.mapping_health_topic,
+            Bool,
+            self.mapping_health_callback,
+            queue_size=1,
+        )
+        if self.mapping_health_detail_topic:
+            rospy.Subscriber(
+                self.mapping_health_detail_topic,
+                String,
+                self.mapping_health_detail_callback,
+                queue_size=1,
+            )
 
         if not self.dry_run:
             rospy.loginfo(
@@ -633,10 +762,15 @@ class GraphNBVStageB31ManualGate:
                 "tf_receive_age": tf_receive_age,
                 "failure_count": int(self.health_failure_count),
                 "reason": self.health_reason or None,
+                "mapping_received": bool(self.mapping_health_received),
+                "mapping_ok": bool(self.mapping_health_ok),
+                "mapping_age": self.mapping_health_age(),
+                "mapping_reason": self.mapping_health_detail or None,
             },
             "recovery": {
                 "reason": self.recovery_reason or None,
                 "remaining": float(recovery_remaining),
+                "escape_active": bool(self.recovery_escape_active),
             },
             "counters": {
                 "goals_sent": int(self.total_goals_sent),
@@ -679,7 +813,7 @@ class GraphNBVStageB31ManualGate:
             )
         self.publish_runtime_status()
 
-    def finish_exploration(self, reason: str) -> None:
+    def finalize_exploration(self, reason: str) -> None:
         if self.finished:
             return
         self.finished = True
@@ -695,6 +829,123 @@ class GraphNBVStageB31ManualGate:
         self.set_exploration_state("FINISHED")
         self.publish_status(reason)
         rospy.loginfo("[graph_nbv] exploration finished: %s", reason)
+
+    def start_return_home(self) -> bool:
+        """Navigate home in bounded legs along a checked global path."""
+
+        if self.gate_origin is None:
+            return False
+
+        robot_pose = self.last_robot_pose or self.get_robot_pose()
+        if robot_pose is None:
+            return False
+
+        home_x, home_y = self.gate_origin
+        if self.gate_forward is not None:
+            home_yaw = math.atan2(
+                self.gate_forward[1],
+                self.gate_forward[0],
+            )
+        else:
+            home_yaw = robot_pose[2]
+        remaining = math.hypot(
+            home_x - robot_pose[0],
+            home_y - robot_pose[1],
+        )
+        if remaining <= self.return_goal_tolerance:
+            self.finalize_exploration(
+                self.finish_reason + "_RETURNED_HOME_ALREADY"
+            )
+            return True
+
+        target_x = home_x
+        target_y = home_y
+        target_yaw = home_yaw
+        path = self.request_global_path(
+            robot_pose,
+            home_x,
+            home_y,
+            home_yaw,
+            respect_gate=False,
+        )
+        if path is not None:
+            bounded = path_point_at_distance(
+                [
+                    (
+                        pose.pose.position.x,
+                        pose.pose.position.y,
+                    )
+                    for pose in path
+                ],
+                self.return_max_leg_distance,
+            )
+            if bounded is not None:
+                bounded_distance = math.hypot(
+                    bounded[0] - robot_pose[0],
+                    bounded[1] - robot_pose[1],
+                )
+                if bounded_distance + self.return_goal_tolerance < remaining:
+                    target_x, target_y = bounded
+                    target_yaw = math.atan2(
+                        home_y - target_y,
+                        home_x - target_x,
+                    )
+
+        goal = MoveBaseGoal()
+        goal.target_pose = self.make_pose(
+            target_x,
+            target_y,
+            target_yaw,
+        )
+        self.client.send_goal(goal)
+        self.current_return_goal = (
+            target_x,
+            target_y,
+            target_yaw,
+        )
+        self.current_local_goal = None
+        self.current_global_goal = None
+        self.current_goal_kind = "RETURN"
+        self.begin_goal("RETURN")
+        self.mode_pub.publish(String(data="RETURN_HOME"))
+        self.set_exploration_state("RETURNING_HOME")
+        self.publish_status(
+            "RETURNING_HOME_LEG_%.2F_REMAINING_%.2F"
+            % (
+                math.hypot(
+                    target_x - robot_pose[0],
+                    target_y - robot_pose[1],
+                ),
+                remaining,
+            )
+        )
+        rospy.loginfo(
+            "[graph_nbv] RETURN_HOME leg target=(%.2f, %.2f) "
+            "remaining=%.2f",
+            target_x,
+            target_y,
+            remaining,
+        )
+        return True
+
+    def finish_exploration(self, reason: str) -> None:
+        if self.finished or self.finish_requested:
+            return
+        self.finish_requested = True
+        self.finish_reason = reason
+        self.stop_initial_motion()
+        try:
+            self.client.cancel_goal()
+        except Exception:
+            pass
+
+        if self.return_to_start_enabled and not self.dry_run:
+            if self.start_return_home():
+                return
+            self.abort_safely("RETURN_HOME_UNAVAILABLE")
+            return
+
+        self.finalize_exploration(reason)
 
     def abort_safely(self, reason: str) -> None:
         if self.finished:
@@ -722,6 +973,29 @@ class GraphNBVStageB31ManualGate:
         ) and self.last_robot_pose is not None:
             return "INVALID_TF_POSE"
 
+        if self.require_mapping_health:
+            mapping_age = self.mapping_health_age()
+            if not mapping_health_ready(
+                self.mapping_health_received,
+                self.mapping_health_ok,
+                mapping_age,
+                self.mapping_health_timeout,
+            ):
+                if not self.mapping_health_received:
+                    return "MAPPING_HEALTH_UNAVAILABLE"
+                if not self.mapping_health_ok:
+                    detail = self.mapping_health_detail.strip()
+                    if detail:
+                        detail = detail.split(",", 1)[0]
+                        detail = "_".join(
+                            character
+                            if character.isalnum()
+                            else "_"
+                            for character in detail.upper()
+                        ).strip("_")
+                    return "MAPPING_HEALTH_" + (detail or "UNHEALTHY")
+                return "MAPPING_HEALTH_STALE"
+
         if self.map_freshness_timeout > 0.0:
             map_age = freshness_age(
                 self.last_map_stamp.to_sec(),
@@ -748,10 +1022,44 @@ class GraphNBVStageB31ManualGate:
 
         return None
 
+    def mapping_health_callback(self, message: Bool) -> None:
+        self.mapping_health_received = True
+        self.mapping_health_ok = bool(message.data)
+        self.mapping_health_received_wall = time.monotonic()
+
+    def mapping_health_detail_callback(self, message: String) -> None:
+        raw = str(message.data)
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError):
+            self.mapping_health_detail = raw[:160]
+            return
+        reasons = payload.get("reasons") if isinstance(payload, dict) else None
+        if isinstance(reasons, list):
+            self.mapping_health_detail = ",".join(
+                str(reason) for reason in reasons[:4]
+            )
+        else:
+            self.mapping_health_detail = raw[:160]
+
+    def mapping_health_age(self) -> Optional[float]:
+        if self.mapping_health_received_wall is None:
+            return None
+        age = time.monotonic() - self.mapping_health_received_wall
+        if not math.isfinite(age):
+            return None
+        return max(0.0, age)
+
     def handle_health_degraded(self, reason: str) -> None:
         now = rospy.Time.now()
+        if self.health_degraded_since.is_zero():
+            self.health_degraded_since = now
         self.health_failure_count += 1
         self.health_reason = reason
+        self.stop_initial_motion()
+        self.recovery_escape_active = False
+        self.recovery_escape_until = rospy.Time(0)
+        self.recovery_escape_command = Twist()
         if self.exploration_state != "HEALTH_DEGRADED":
             if self.current_goal_xy() is not None:
                 try:
@@ -766,7 +1074,16 @@ class GraphNBVStageB31ManualGate:
             self.set_exploration_state("HEALTH_DEGRADED")
             self.publish_status("HEALTH_DEGRADED_" + reason)
 
-        if self.health_failure_count >= self.health_failure_limit:
+        degraded_for = 0.0
+        if not self.health_degraded_since.is_zero() and not now.is_zero():
+            degraded_for = max(
+                0.0,
+                (now - self.health_degraded_since).to_sec(),
+            )
+        if (
+            self.health_abort_timeout > 0.0
+            and degraded_for >= self.health_abort_timeout
+        ):
             self.abort_safely(reason)
 
     def recover_health(self) -> None:
@@ -775,6 +1092,7 @@ class GraphNBVStageB31ManualGate:
         previous_reason = self.health_reason
         self.health_failure_count = 0
         self.health_reason = ""
+        self.health_degraded_since = rospy.Time(0)
         self.recovery_reason = ""
         self.recovery_until = rospy.Time(0)
         if self.exploration_state == "HEALTH_DEGRADED":
@@ -840,6 +1158,125 @@ class GraphNBVStageB31ManualGate:
             self.publish_initial_velocity(0.0, 0.0)
         except Exception:
             pass
+
+    def _escape_path_score(
+        self,
+        layers: Dict[str, np.ndarray],
+        robot_pose: Tuple[float, float, float],
+        direction_sign: float,
+    ) -> Optional[float]:
+        """Return the minimum future clearance for a straight escape.
+
+        The current cell may already be close to an obstacle because this
+        method is called after a navigation failure.  Start scoring after a
+        short release distance, but reject occupied or unknown cells along
+        the rest of the commanded reverse/forward segment.
+        """
+
+        if self.resolution <= 0.0:
+            return None
+
+        x, y, yaw = robot_pose
+        travel = max(
+            self.resolution,
+            abs(self.recovery_escape_distance),
+        )
+        step = max(self.resolution * 0.5, 0.05)
+        start = max(
+            self.resolution,
+            min(
+                travel,
+                self.recovery_escape_start_clearance,
+            ),
+        )
+        min_clearance = float("inf")
+        distance = start
+
+        while distance <= travel + 1e-9:
+            world_x = x + direction_sign * distance * math.cos(yaw)
+            world_y = y + direction_sign * distance * math.sin(yaw)
+            cell = self.world_to_grid(world_x, world_y)
+            if cell is None:
+                return None
+            row, col = cell
+            if self.grid is None or self.grid[row, col] < 0:
+                return None
+            if self.grid[row, col] >= self.occupied_threshold:
+                return None
+            min_clearance = min(
+                min_clearance,
+                float(layers["clearance"][row, col]),
+            )
+            distance += step
+
+        if not math.isfinite(min_clearance):
+            return None
+        return min_clearance
+
+    def start_escape_recovery(
+        self,
+        robot_pose: Optional[Tuple[float, float, float]],
+    ) -> None:
+        """Start a short map-gated escape after a failed move_base goal."""
+
+        self.recovery_escape_active = False
+        self.recovery_escape_until = rospy.Time(0)
+        self.recovery_escape_command = Twist()
+
+        if (
+            not self.recovery_escape_enabled
+            or robot_pose is None
+            or self.grid is None
+            or self.resolution <= 0.0
+        ):
+            return
+
+        layers = self.build_layers()
+        if layers is None:
+            return
+
+        candidates = []
+        for direction_sign in (-1.0, 1.0):
+            score = self._escape_path_score(
+                layers,
+                robot_pose,
+                direction_sign,
+            )
+            if score is not None:
+                candidates.append((score, direction_sign))
+
+        if not candidates:
+            rospy.logwarn(
+                "[graph_nbv] no known-free escape segment after goal failure"
+            )
+            return
+
+        score, direction_sign = max(candidates, key=lambda item: item[0])
+        if score < self.recovery_escape_start_clearance:
+            rospy.logwarn(
+                "[graph_nbv] escape clearance too small score=%.2f "
+                "minimum=%.2f",
+                score,
+                self.recovery_escape_start_clearance,
+            )
+            return
+
+        command = Twist()
+        command.linear.x = direction_sign * self.recovery_escape_speed
+        self.recovery_escape_command = command
+        now = rospy.Time.now()
+        self.recovery_escape_until = now + rospy.Duration.from_sec(
+            max(0.0, self.recovery_escape_duration)
+        )
+        self.recovery_escape_active = self.recovery_escape_duration > 0.0
+        rospy.logwarn(
+            "[graph_nbv] escape recovery direction=%s speed=%.2f "
+            "duration=%.1f clearance=%.2f",
+            "reverse" if direction_sign < 0.0 else "forward",
+            self.recovery_escape_speed,
+            self.recovery_escape_duration,
+            score,
+        )
 
     def gate_progress(self, x: float, y: float) -> float:
         if self.gate_origin is None or self.gate_forward is None:
@@ -1290,6 +1727,18 @@ class GraphNBVStageB31ManualGate:
         y = self.origin_y + s * local_x + c * local_y
         return x, y
 
+    def within_exploration_bounds(
+        self,
+        x: float,
+        y: float,
+    ) -> bool:
+        if not self.exploration_bounds_enabled:
+            return True
+        return (
+            self.exploration_x_min <= x <= self.exploration_x_max
+            and self.exploration_y_min <= y <= self.exploration_y_max
+        )
+
     def mark_coverage(
         self,
         robot_pose: Tuple[float, float, float],
@@ -1367,6 +1816,29 @@ class GraphNBVStageB31ManualGate:
             & (wall_guard == 0)
         ).astype(np.uint8)
 
+        exploration_mask = np.ones(
+            (self.map_height, self.map_width),
+            dtype=np.uint8,
+        )
+        if self.exploration_bounds_enabled:
+            rows, cols = np.indices(
+                (self.map_height, self.map_width),
+                dtype=np.float32,
+            )
+            local_x = (cols + 0.5) * self.resolution
+            local_y = (rows + 0.5) * self.resolution
+            c = math.cos(self.origin_yaw)
+            s = math.sin(self.origin_yaw)
+            world_x = self.origin_x + c * local_x - s * local_y
+            world_y = self.origin_y + s * local_x + c * local_y
+            exploration_mask = (
+                (world_x >= self.exploration_x_min)
+                & (world_x <= self.exploration_x_max)
+                & (world_y >= self.exploration_y_min)
+                & (world_y <= self.exploration_y_max)
+            ).astype(np.uint8)
+            frontier = frontier & exploration_mask
+
         dilation_cells = max(
             0,
             int(math.ceil(
@@ -1399,6 +1871,7 @@ class GraphNBVStageB31ManualGate:
             "clearance": clearance,
             "safe": safe,
             "frontier": frontier,
+            "exploration_mask": exploration_mask,
             "visibility_obstacles": visibility_obstacles,
             "coverage_distance": coverage_distance,
         }
@@ -1451,6 +1924,9 @@ class GraphNBVStageB31ManualGate:
                 previous_cell = cell
 
                 row, col = cell
+
+                if layers["exploration_mask"][row, col] == 0:
+                    break
 
                 if layers["visibility_obstacles"][row, col] > 0:
                     break
@@ -1517,6 +1993,8 @@ class GraphNBVStageB31ManualGate:
 
                 x, y = self.grid_to_world(row, col)
                 if not self.gate_allows(x, y):
+                    continue
+                if not self.within_exploration_bounds(x, y):
                     continue
 
                 distance = math.hypot(
@@ -1604,6 +2082,8 @@ class GraphNBVStageB31ManualGate:
             row, col = cell
             if not layers["safe"][row, col]:
                 return False
+            if layers["clearance"][row, col] < self.min_edge_clearance:
+                return False
 
         return True
 
@@ -1674,10 +2154,10 @@ class GraphNBVStageB31ManualGate:
         return distances
 
     def is_blacklisted(self, x: float, y: float) -> bool:
-        return any(
-            math.hypot(x - bx, y - by)
-            < self.blacklist_radius
-            for bx, by in self.blacklist
+        return point_is_blacklisted(
+            (x, y),
+            self.blacklist,
+            self.blacklist_radius,
         )
 
     def add_blacklist(self, x: float, y: float) -> None:
@@ -1715,6 +2195,8 @@ class GraphNBVStageB31ManualGate:
         self.last_goal_elapsed = elapsed
         self.total_goal_successes += 1
         self.consecutive_goal_failures = 0
+        if kind == "RETURN":
+            self.return_retry_count = 0
         self.clear_current_goal()
         self.recovery_until = rospy.Time(0)
         self.recovery_reason = ""
@@ -1737,6 +2219,32 @@ class GraphNBVStageB31ManualGate:
         except Exception:
             pass
 
+        if kind == "RETURN":
+            self.last_goal_id = self.current_goal_id
+            self.last_goal_result = "FAILED"
+            self.last_goal_reason = reason
+            self.last_goal_elapsed = elapsed
+            self.total_goal_failures += 1
+            self.clear_current_goal()
+            self.return_retry_count += 1
+            if return_retry_available(
+                self.return_retry_count,
+                self.return_goal_retry_limit,
+            ):
+                self.start_escape_recovery(self.last_robot_pose)
+                self.recovery_reason = "RETURN_HOME_" + reason
+                self.recovery_until = now + rospy.Duration(
+                    max(0.0, self.goal_recovery_pause)
+                )
+                self.set_exploration_state("GOAL_RECOVERY")
+                self.publish_status(
+                    "RETURN_HOME_RETRY_%d_%s"
+                    % (self.return_retry_count, reason)
+                )
+                return kind
+            self.abort_safely("RETURN_HOME_" + reason)
+            return kind
+
         if goal_xy is not None:
             self.add_blacklist(goal_xy[0], goal_xy[1])
         self.last_goal_id = self.current_goal_id
@@ -1746,6 +2254,7 @@ class GraphNBVStageB31ManualGate:
         self.total_goal_failures += 1
         self.consecutive_goal_failures += 1
         self.clear_current_goal()
+        self.start_escape_recovery(self.last_robot_pose)
         self.recovery_reason = reason
         self.recovery_until = now + rospy.Duration(
             max(0.0, self.goal_recovery_pause)
@@ -1778,6 +2287,13 @@ class GraphNBVStageB31ManualGate:
             if not math.isfinite(node.path_cost):
                 continue
             if self.is_blacklisted(node.x, node.y):
+                continue
+            if node.clearance < self.min_target_clearance:
+                continue
+            if not path_cost_allowed(
+                node.path_cost,
+                self.max_local_path_cost,
+            ):
                 continue
 
             distance = math.hypot(
@@ -1813,6 +2329,16 @@ class GraphNBVStageB31ManualGate:
 
             if best is None or node.utility > best.utility:
                 best = node
+
+        if best is not None and best.utility < self.min_local_utility:
+            rospy.loginfo_throttle(
+                5.0,
+                "[graph_nbv] local candidates below utility gate "
+                "best=%.2f threshold=%.2f; switching to global search",
+                best.utility,
+                self.min_local_utility,
+            )
+            return None
 
         return best
 
@@ -1856,6 +2382,24 @@ class GraphNBVStageB31ManualGate:
         y: float,
         yaw: float,
     ) -> Optional[float]:
+        path = self.request_global_path(
+            robot_pose,
+            x,
+            y,
+            yaw,
+        )
+        if path is None:
+            return None
+        return self.path_length(path)
+
+    def request_global_path(
+        self,
+        robot_pose: Tuple[float, float, float],
+        x: float,
+        y: float,
+        yaw: float,
+        respect_gate: bool = True,
+    ) -> Optional[List[PoseStamped]]:
         if not self.make_plan_available:
             try:
                 rospy.wait_for_service(
@@ -1891,14 +2435,14 @@ class GraphNBVStageB31ManualGate:
         if len(response.plan.poses) < 2:
             return None
 
-        if self.gate_locked:
+        if self.gate_locked and respect_gate:
             for pose in response.plan.poses:
                 x = pose.pose.position.x
                 y = pose.pose.position.y
                 if not self.gate_allows(x, y):
                     return None
 
-        return self.path_length(response.plan.poses)
+        return list(response.plan.poses)
 
     def global_frontier_targets(
         self,
@@ -1984,6 +2528,7 @@ class GraphNBVStageB31ManualGate:
 
             approach_mask = (
                 layers["safe"]
+                & (layers["exploration_mask"] > 0)
                 & (
                     distance_to_frontier
                     >= self.global_approach_min_distance
@@ -2096,14 +2641,26 @@ class GraphNBVStageB31ManualGate:
                 or straight_distance > self.goal_max_distance
             ):
                 continue
+            if clearance < self.min_target_clearance:
+                continue
 
-            plan_cost = self.request_global_plan(
+            path = self.request_global_path(
                 robot_pose,
                 x,
                 y,
                 yaw,
             )
-            if plan_cost is None:
+            if path is None:
+                continue
+            plan_cost = self.path_length(path)
+            if plan_cost > self.max_global_path_cost:
+                rospy.loginfo_throttle(
+                    5.0,
+                    "[graph_nbv] rejecting long global relocation "
+                    "path=%.2f max=%.2f",
+                    plan_cost,
+                    self.max_global_path_cost,
+                )
                 continue
 
             revisit = max(
@@ -2132,10 +2689,56 @@ class GraphNBVStageB31ManualGate:
                 - self.behind_gate_penalty(x, y)
             )
 
+            goal_x = x
+            goal_y = y
+            goal_yaw = yaw
+            bounded = path_point_at_distance(
+                [
+                    (
+                        pose.pose.position.x,
+                        pose.pose.position.y,
+                    )
+                    for pose in path
+                ],
+                self.max_global_leg_distance,
+            )
+            if bounded is not None:
+                bounded_distance = math.hypot(
+                    bounded[0] - robot_pose[0],
+                    bounded[1] - robot_pose[1],
+                )
+                if bounded_distance + self.goal_reached_radius < straight_distance:
+                    goal_x, goal_y = bounded
+                    goal_yaw = math.atan2(
+                        y - goal_y,
+                        x - goal_x,
+                    )
+                    rospy.loginfo_throttle(
+                        5.0,
+                        "[graph_nbv] segmenting global path "
+                        "full=%.2f leg=%.2f",
+                        plan_cost,
+                        bounded_distance,
+                    )
+
+            # A failed action blacklists the actual bounded leg endpoint.
+            # The raw frontier approach point can be several metres farther
+            # along the same plan, so checking only that raw point allowed
+            # the same blocked leg to be regenerated indefinitely.
+            if self.is_blacklisted(goal_x, goal_y):
+                rospy.loginfo_throttle(
+                    5.0,
+                    "[graph_nbv] rejecting blacklisted bounded "
+                    "global leg x=%.2f y=%.2f",
+                    goal_x,
+                    goal_y,
+                )
+                continue
+
             target = GlobalTarget(
-                x=x,
-                y=y,
-                yaw=yaw,
+                x=goal_x,
+                y=goal_y,
+                yaw=goal_yaw,
                 utility=utility,
                 path_cost=plan_cost,
                 visible_unknown_gain=gain,
@@ -2265,11 +2868,21 @@ class GraphNBVStageB31ManualGate:
                 self.current_global_goal.y,
             )
 
+        if (
+            self.current_goal_kind == "RETURN"
+            and self.current_return_goal is not None
+        ):
+            return (
+                self.current_return_goal[0],
+                self.current_return_goal[1],
+            )
+
         return None
 
     def clear_current_goal(self) -> None:
         self.current_local_goal = None
         self.current_global_goal = None
+        self.current_return_goal = None
         self.current_goal_kind = ""
         self.current_goal_id = ""
         self.current_goal_start = rospy.Time(0)
@@ -2314,6 +2927,18 @@ class GraphNBVStageB31ManualGate:
                     "distance_within_goal_radius",
                 )
                 self.global_empty_cycles = 0
+
+                if completed_kind == "RETURN":
+                    if self.gate_origin is not None and math.hypot(
+                        self.gate_origin[0] - robot_pose[0],
+                        self.gate_origin[1] - robot_pose[1],
+                    ) <= self.return_goal_tolerance:
+                        self.finalize_exploration(
+                            self.finish_reason + "_RETURNED_HOME"
+                        )
+                    elif not self.start_return_home():
+                        self.abort_safely("RETURN_HOME_UNAVAILABLE")
+                    return
 
                 if completed_kind == "GLOBAL":
                     self.mode_pub.publish(
@@ -2367,6 +2992,18 @@ class GraphNBVStageB31ManualGate:
                 completed_kind,
             )
             self.global_empty_cycles = 0
+
+            if completed_kind == "RETURN":
+                if self.gate_origin is not None and math.hypot(
+                    self.gate_origin[0] - robot_pose[0],
+                    self.gate_origin[1] - robot_pose[1],
+                ) <= self.return_goal_tolerance:
+                    self.finalize_exploration(
+                        self.finish_reason + "_RETURNED_HOME"
+                    )
+                elif not self.start_return_home():
+                    self.abort_safely("RETURN_HOME_UNAVAILABLE")
+                return
 
             if completed_kind == "GLOBAL":
                 self.mode_pub.publish(
@@ -2672,6 +3309,32 @@ class GraphNBVStageB31ManualGate:
             return
         self.recover_health()
 
+        if self.recovery_escape_active:
+            if now.to_sec() > 0.0 and now < self.recovery_escape_until:
+                self.cmd_vel_pub.publish(self.recovery_escape_command)
+                self.set_exploration_state("GOAL_RECOVERY")
+                self.publish_status(
+                    "ESCAPE_" + (
+                        "REVERSE"
+                        if self.recovery_escape_command.linear.x < 0.0
+                        else "FORWARD"
+                    )
+                )
+                self.publish_markers(
+                    self.last_nodes,
+                    self.last_edges,
+                    robot_pose,
+                    self.last_local_selected,
+                    self.last_global_selected,
+                    self.last_global_frontiers,
+                )
+                return
+
+            self.recovery_escape_active = False
+            self.recovery_escape_until = rospy.Time(0)
+            self.recovery_escape_command = Twist()
+            self.cmd_vel_pub.publish(self.recovery_escape_command)
+
         if (
             self.recovery_until.to_sec() > 0.0
             and now.to_sec() > 0.0
@@ -2702,6 +3365,15 @@ class GraphNBVStageB31ManualGate:
                 "HEALTH_DEGRADED",
             ):
                 self.set_exploration_state("WAITING_FOR_NEXT_GOAL")
+
+        # Once exploration has requested completion, a failed return leg must
+        # never fall back into NBV target selection.  Replan the next short
+        # return leg after the bounded recovery pause.
+        if self.finish_requested:
+            if self.start_return_home():
+                return
+            self.abort_safely("RETURN_HOME_UNAVAILABLE")
+            return
 
         if self.initial_paused:
             self.stop_initial_motion()

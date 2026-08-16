@@ -2,6 +2,9 @@
   <arg name="clear_all_floor_maps" default="false" />
   <arg name="sensor_frame" default="body" />
   <arg name="input_cloud_topic" default="/cloud_registered_body" />
+  <arg name="floor_state_file" default="/root/catkin_native/ros1_runtime/mission_state/floor_state.json" />
+  <arg name="floor_maps_root" default="/root/catkin_native/ros1_runtime/floors" />
+  <arg name="floor_count" default="3" />
 
   <!--
     只启动二维投影。
@@ -21,6 +24,9 @@
     <param name="clear_all_floor_maps" value="$(arg clear_all_floor_maps)" />
     <param name="sensor_frame" value="$(arg sensor_frame)" />
     <param name="input_cloud_topic" value="$(arg input_cloud_topic)" />
+    <param name="floor_state_file" value="$(arg floor_state_file)" />
+    <param name="floor_maps_root" value="$(arg floor_maps_root)" />
+    <param name="floor_count" value="$(arg floor_count)" />
 
   </node>
 

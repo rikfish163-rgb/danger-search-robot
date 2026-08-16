@@ -119,10 +119,11 @@ if [ "$mapping_health_ok" -ne 1 ]; then
 fi
 
 if [ "${CHECK_NAVIGATION_RUNTIME:-0}" = "1" ]; then
-  for node in /unitree_gazebo_servo /move_base; do
+  for node in /unitree_gazebo_servo /move_base /cmd_vel_arbiter; do
     require_node "$node"
   done
   require_publisher /cmd_vel
+  require_publisher /cmd_vel_nav
   require_service /move_base/make_plan
   require_service /move_base/GlobalPlanner/make_plan
   navigation_ready_timeout="${NAVIGATION_READY_TIMEOUT_SECONDS:-30}"

@@ -18,11 +18,12 @@ TebLocalPlannerROS:
   feasibility_check_lookahead_distance: 2.0
   publish_feedback: false
 
-  # The learned RL controller was verified at +/-0.20 m/s in the fixed
-  # container. Keep a lower reverse cap, but do not make a 1.4 m room goal
-  # time out before the robot can reach it.
+  # The learned RL controller has a practical command dead zone below about
+  # 0.20 m/s. Do not cap reverse motion inside that dead zone: TEB must be
+  # able to issue an effective reverse command when a target is behind the
+  # robot.
   max_vel_x: 0.20
-  max_vel_x_backwards: 0.14
+  max_vel_x_backwards: 0.20
   max_vel_y: 0.0
   max_vel_theta: 0.45
   max_vel_trans: 0.20

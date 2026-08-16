@@ -9,6 +9,10 @@ RUNTIME_DIR="${EXPLORATION_STACK_RUNTIME_DIR:-/tmp/ros1_exploration_stack}"
 WAIT_SECONDS="${NAVIGATION_WAIT_SECONDS:-60}"
 ACTIVATE_RL_MODE="${ACTIVATE_RL_MODE:-1}"
 RESET_RL_MODE="${RESET_RL_MODE:-1}"
+# Use the continuously cleared projection for TEB's short-horizon navigation.
+# The debounced /map_confirmed layer remains the conservative Graph-NBV and
+# clearance-check input; using it for the entrance costmap can turn transient
+# confirmed cells into a complete corridor blockage.
 MAP_TOPIC="${NAVIGATION_MAP_TOPIC:-/map_raw}"
 mkdir -p "$RUNTIME_DIR"
 
@@ -54,14 +58,53 @@ wait_for_service() {
   return 1
 }
 
+controller_process_present() {
+  ps -eo comm= 2>/dev/null | grep -Fxq "junior_ctrl"
+}
+
+start_native_controller() {
+  if controller_process_present; then
+    echo "native controller already running: junior_ctrl"
+    return 0
+  fi
+
+  local controller_binary="${UNITREE_CTRL_BINARY:-/root/catkin_native/unitree_devel/lib/unitree_guide/junior_ctrl}"
+  local libtorch_root="${LIBTORCH_ROOT:-/root/ros1_isolated/deps/libtorch}"
+  if [ ! -x "$controller_binary" ]; then
+    echo "native controller executable missing: $controller_binary" >&2
+    return 78
+  fi
+
+  local log_path="$RUNTIME_DIR/junior_ctrl.log"
+  echo "starting native controller -> $log_path"
+  (
+    cd "$ROOT_DIR/src/SimEnv"
+    LD_LIBRARY_PATH="$libtorch_root/lib:${CATKIN_DEVEL_SPACE}/lib:/opt/ros/noetic/lib:${LD_LIBRARY_PATH:-}" \
+      "$controller_binary"
+  ) >"$log_path" 2>&1 &
+  echo $! >"$RUNTIME_DIR/junior_ctrl.pid"
+
+  local deadline=$((SECONDS + WAIT_SECONDS))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if controller_process_present; then
+      echo "native controller ready: junior_ctrl"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "native controller failed to stay running: junior_ctrl" >&2
+  tail -n 80 "$log_path" >&2 || true
+  return 1
+}
+
 if ! timeout --foreground 8s rosservice list >/dev/null 2>&1; then
   echo "ROS master is not reachable at ${ROS_MASTER_URI:-unset}" >&2
   exit 78
 fi
 
-for node in /gazebo /unitree_gazebo_servo; do
-  wait_for_node "$node"
-done
+wait_for_node /gazebo
+start_native_controller
+wait_for_node /unitree_gazebo_servo
 for topic in /clock "$MAP_TOPIC" /Odometry_gazebo; do
   if ! topic_present "$topic"; then
     echo "navigation prerequisite topic missing: $topic" >&2
@@ -70,7 +113,13 @@ for topic in /clock "$MAP_TOPIC" /Odometry_gazebo; do
 done
 
 if node_present /move_base; then
-  echo "navigation launch already running: /move_base"
+  active_global_map="$(rosparam get /move_base/global_costmap/static_layer/map_topic 2>/dev/null || true)"
+  active_local_map="$(rosparam get /move_base/local_costmap/static_layer/map_topic 2>/dev/null || true)"
+  if [ "$active_global_map" != "$MAP_TOPIC" ] || [ "$active_local_map" != "$MAP_TOPIC" ]; then
+    echo "refusing stale move_base map: global=$active_global_map local=$active_local_map expected=$MAP_TOPIC" >&2
+    exit 79
+  fi
+  echo "navigation launch already running: /move_base (map=$MAP_TOPIC)"
 else
   log_path="$RUNTIME_DIR/move_base_teb_gazebo_truth.log"
   echo "starting move_base/TEB map=$MAP_TOPIC -> $log_path"
@@ -79,6 +128,7 @@ else
   echo $! >"$RUNTIME_DIR/move_base_teb_gazebo_truth.pid"
 fi
 wait_for_node /move_base
+wait_for_node /cmd_vel_arbiter
 # move_base registers its node name before costmaps, the global planner, and
 # the action server are fully initialized.  The make_plan service is useful,
 # but it is not sufficient: check_exploration_stack also performs a real
@@ -97,4 +147,4 @@ if [ "$ACTIVATE_RL_MODE" = "1" ]; then
 fi
 
 CHECK_NAVIGATION_RUNTIME=1 "$ROOT_DIR/tools/check_exploration_stack.sh"
-echo "navigation runtime ready: move_base/TEB -> /cmd_vel -> RL"
+echo "navigation runtime ready: move_base/TEB -> cmd_vel_arbiter -> /cmd_vel -> RL"

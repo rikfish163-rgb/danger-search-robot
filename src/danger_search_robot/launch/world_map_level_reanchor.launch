@@ -1,6 +1,6 @@
 <launch>
-    <arg name="state_file" default="$(env HOME)/catkin_ws/results/floor_state.json"/>
-    <arg name="anchor_file" default="$(env HOME)/catkin_ws/results/floor_transition_anchor.json"/>
+    <arg name="state_file" default="$(optenv ROS1_RUNTIME_ROOT /root/catkin_native/ros1_runtime)/mission_state/floor_state.json"/>
+    <arg name="anchor_file" default="$(optenv ROS1_RUNTIME_ROOT /root/catkin_native/ros1_runtime)/mission_state/floor_transition_anchor.json"/>
 
     <node pkg="danger_search_robot"
           type="world_map_level_reanchor.py"

@@ -56,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         SetDoorState,
         lambda request: _handle_set_door_state(runtime, request, SetDoorStateResponse, set_model_state, set_link_state),
     )
+    _apply_initial_open_doors(runtime, set_model_state, set_link_state)
     rospy.loginfo("building_generator_classic_control ready")
     rospy.spin()
     return 0
@@ -130,6 +131,17 @@ def _handle_set_door_state(runtime: BuildingControlRuntime, request, response_ty
         state=str(result["state"]),
         message=str(result["message"]),
     )
+
+
+def _apply_initial_open_doors(runtime, set_model_state, set_link_state) -> None:
+    """Synchronize generated ``initial_open`` flags with Gazebo panels."""
+
+    import rospy
+
+    for door_id in runtime.initial_open_door_ids():
+        result = runtime.set_door_state(door_id, True)
+        _apply_door_result(result, set_model_state, set_link_state)
+        rospy.loginfo("Applied initial open state for door %s", door_id)
 
 
 def _apply_door_result(result: dict, set_model_state, set_link_state) -> None:

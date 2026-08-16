@@ -11,9 +11,11 @@ import rospy
 import tf2_ros
 
 from actionlib_msgs.msg import GoalStatus
+from geometry_msgs.msg import Twist
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, String
-from tf.transformations import quaternion_from_euler
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
 
 
 class MissionManager:
@@ -45,6 +47,64 @@ class MissionManager:
                 0.35,
             )
         )
+        self.entry_odom_topic = rospy.get_param(
+            "~entry_odom_topic",
+            "/Odometry_gazebo",
+        )
+        entry_direct_param = rospy.get_param(
+            "~entry_direct_control",
+            None,
+        )
+        if entry_direct_param is None:
+            published_topics = dict(rospy.get_published_topics())
+            self.entry_direct_control = (
+                self.entry_odom_topic in published_topics
+            )
+        else:
+            self.entry_direct_control = bool(entry_direct_param)
+        self.entry_timeout = float(
+            rospy.get_param("~entry_timeout", 180.0)
+        )
+        self.entry_cmd_topic = rospy.get_param(
+            "~entry_cmd_topic", "/cmd_vel_direct"
+        )
+        self.entry_speed = float(
+            rospy.get_param("~entry_speed", 0.20)
+        )
+        self.entry_turn_speed = float(
+            rospy.get_param("~entry_turn_speed", 0.45)
+        )
+        self.entry_heading_threshold = float(
+            rospy.get_param("~entry_heading_threshold", 0.20)
+        )
+        if self.entry_timeout <= 0.0:
+            raise RuntimeError("entry_timeout must be > 0")
+        if self.entry_speed <= 0.0 or self.entry_turn_speed <= 0.0:
+            raise RuntimeError("entry speeds must be > 0")
+        if self.entry_heading_threshold <= 0.0:
+            raise RuntimeError("entry_heading_threshold must be > 0")
+        self.entry_pose = None
+        self.entry_cmd_pub = None
+        self.entry_odom_sub = None
+        if self.entry_direct_control:
+            self.entry_cmd_pub = rospy.Publisher(
+                self.entry_cmd_topic,
+                Twist,
+                queue_size=1,
+            )
+            self.entry_odom_sub = rospy.Subscriber(
+                self.entry_odom_topic,
+                Odometry,
+                self._entry_odom_callback,
+                queue_size=1,
+            )
+            rospy.loginfo(
+                "Gazebo truth entry controller enabled: odom=%s "
+                "speed=%.2f m/s timeout=%.1f s",
+                self.entry_odom_topic,
+                self.entry_speed,
+                self.entry_timeout,
+            )
 
         self.status_pub = rospy.Publisher(
             "~status",
@@ -78,6 +138,137 @@ class MissionManager:
         )
 
         rospy.on_shutdown(self.cancel_navigation)
+
+    def _entry_odom_callback(self, message):
+        position = message.pose.pose.position
+        orientation = message.pose.pose.orientation
+        self.entry_pose = (
+            position.x,
+            position.y,
+            euler_from_quaternion(
+                (
+                    orientation.x,
+                    orientation.y,
+                    orientation.z,
+                    orientation.w,
+                )
+            )[2],
+        )
+
+    @staticmethod
+    def _wrap_angle(angle):
+        return math.atan2(math.sin(angle), math.cos(angle))
+
+    @staticmethod
+    def _zero_twist():
+        return Twist()
+
+    def _release_entry_control(self):
+        if self.entry_cmd_pub is not None:
+            self.entry_cmd_pub.unregister()
+            self.entry_cmd_pub = None
+        if self.entry_odom_sub is not None:
+            self.entry_odom_sub.unregister()
+            self.entry_odom_sub = None
+
+    def navigate_through_waypoint_direct(self, waypoint_name, point):
+        """Cross the simulated entrance with a closed-loop forward leg.
+
+        The generated entrance contains a shallow apron.  TEB can choose a
+        reverse/turning trajectory around its edge even when a straight route
+        is valid.  In the fixed Gazebo profile the truth odometry and the
+        learned controller are available, so this short entry leg aligns to
+        the waypoint and drives forward until the pass-through tolerance is
+        met.  Normal room/elevator navigation remains move_base-controlled.
+        """
+
+        if self.entry_cmd_pub is None:
+            raise RuntimeError(
+                "direct entry requested without an entry command publisher"
+            )
+
+        self.publish_status(
+            "NAVIGATING_THROUGH_" + waypoint_name
+        )
+        rospy.loginfo(
+            "Sending direct entry leg: odom=%s x=%.3f y=%.3f "
+            "reach_tolerance=%.2f m",
+            self.entry_odom_topic,
+            point["x"],
+            point["y"],
+            self.intermediate_reach_tolerance,
+        )
+        self.move_base_client.cancel_all_goals()
+
+        deadline = time.monotonic() + self.entry_timeout
+        stable_cycles = 0
+        while not rospy.is_shutdown():
+            if time.monotonic() >= deadline:
+                self.entry_cmd_pub.publish(self._zero_twist())
+                self.publish_status("TIMEOUT_" + waypoint_name)
+                rospy.logerr(
+                    "Direct entry to %s timed out after %.1f seconds "
+                    "at pose=%s",
+                    waypoint_name,
+                    self.entry_timeout,
+                    self.entry_pose,
+                )
+                self._release_entry_control()
+                return False
+
+            pose = self.entry_pose
+            if pose is None:
+                self.entry_cmd_pub.publish(self._zero_twist())
+                time.sleep(0.05)
+                continue
+
+            current_x, current_y, current_yaw = pose
+            distance = math.hypot(
+                point["x"] - current_x,
+                point["y"] - current_y,
+            )
+            if distance <= self.intermediate_reach_tolerance:
+                self.entry_cmd_pub.publish(self._zero_twist())
+                stable_cycles += 1
+                if stable_cycles >= 8:
+                    self.publish_status("PASSED_" + waypoint_name)
+                    rospy.loginfo(
+                        "Direct entry passed %s: distance=%.3f pose=%s",
+                        waypoint_name,
+                        distance,
+                        self.entry_pose,
+                    )
+                    self._release_entry_control()
+                    return True
+                time.sleep(0.05)
+                continue
+
+            stable_cycles = 0
+            desired_yaw = math.atan2(
+                point["y"] - current_y,
+                point["x"] - current_x,
+            )
+            heading_error = self._wrap_angle(
+                desired_yaw - current_yaw
+            )
+            command = Twist()
+            if abs(heading_error) > self.entry_heading_threshold:
+                command.angular.z = max(
+                    -self.entry_turn_speed,
+                    min(self.entry_turn_speed, 1.2 * heading_error),
+                )
+            else:
+                command.linear.x = self.entry_speed
+                command.angular.z = max(
+                    -0.25,
+                    min(0.25, 0.6 * heading_error),
+                )
+            self.entry_cmd_pub.publish(command)
+            time.sleep(0.05)
+
+        self.entry_cmd_pub.publish(self._zero_twist())
+        self._release_entry_control()
+        return False
 
     def publish_status(self, status):
         self.status_pub.publish(String(data=status))
@@ -432,16 +623,25 @@ class MissionManager:
     def cancel_navigation(self):
         if hasattr(self, "move_base_client"):
             self.move_base_client.cancel_all_goals()
+        if self.entry_cmd_pub is not None:
+            self.entry_cmd_pub.publish(self._zero_twist())
+            self._release_entry_control()
 
     def run(self):
         self.wait_for_move_base()
 
         for waypoint_name, point in self.route:
             if waypoint_name == "ENTRANCE_INSIDE":
-                success = self.navigate_through_waypoint(
-                    waypoint_name,
-                    point,
-                )
+                if self.entry_direct_control:
+                    success = self.navigate_through_waypoint_direct(
+                        waypoint_name,
+                        point,
+                    )
+                else:
+                    success = self.navigate_through_waypoint(
+                        waypoint_name,
+                        point,
+                    )
             else:
                 success = self.navigate_to_waypoint(
                     waypoint_name,

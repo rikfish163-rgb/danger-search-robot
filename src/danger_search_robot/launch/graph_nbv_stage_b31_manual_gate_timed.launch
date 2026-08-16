@@ -28,6 +28,6 @@
                value="/move_base/cancel"/>
 
         <param name="cmd_vel_topic"
-               value="/cmd_vel"/>
+               value="/cmd_vel_safety"/>
     </node>
 </launch>

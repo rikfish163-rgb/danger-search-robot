@@ -253,6 +253,7 @@ catkin_install_python(PROGRAMS
 
 catkin_install_python(PROGRAMS
   exploration/graph_nbv/scripts/graph_nbv_node.py
+  scripts/cmd_vel_arbiter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

@@ -45,6 +45,9 @@ class ResultWriterNode:
         self._default_result_file = str(
             rospy.get_param("~default_result_file", "")
         ).strip()
+        self._runtime_result_file = str(
+            rospy.get_param("~runtime_result_file", "")
+        ).strip()
         self._workspace_root_param = str(
             rospy.get_param("~workspace_root", "")
         ).strip()
@@ -58,6 +61,7 @@ class ResultWriterNode:
         self._validate_parameters()
         self._workspace_root = self._find_workspace_root()
         self._result_path = self._resolve_result_path()
+        self._runtime_result_path = self._resolve_runtime_result_path()
         self._protect_default_path_during_non_world_test()
 
         # track_id -> (position, confidence).  A dictionary makes repeated
@@ -82,13 +86,15 @@ class ResultWriterNode:
             "~finalize", Trigger, self._handle_finalize
         )
 
-        # Create a valid empty document immediately.  No position is invented.
+        # Create a valid empty document on the native runtime filesystem.
+        # Public NTFS output is published by the bounded post-run publisher.
         self._write_result_file()
 
         rospy.loginfo(
-            "Result writer ready: topic=%s expected_frame=%s output=%s",
+            "Result writer ready: topic=%s expected_frame=%s runtime=%s public=%s",
             self._confirmed_topic,
             self._expected_frame,
+            self._runtime_result_path,
             self._result_path,
         )
 
@@ -236,6 +242,21 @@ class ResultWriterNode:
             self._workspace_root / "results" / "detected_danger.json"
         ).resolve()
 
+    def _resolve_runtime_result_path(self) -> Path:
+        configured = self._runtime_result_file or os.environ.get(
+            "ROS1_RUNTIME_RESULT_FILE", ""
+        ).strip()
+        if not configured:
+            runtime_root = os.environ.get(
+                "ROS1_RUNTIME_ROOT", "/tmp/ros1_runtime"
+            ).strip()
+            configured = str(Path(runtime_root) / "detected_danger.json")
+
+        path = Path(os.path.expandvars(os.path.expanduser(configured)))
+        if not path.is_absolute():
+            raise ValueError("~runtime_result_file must be an absolute path")
+        return path.resolve()
+
     def _protect_default_path_during_non_world_test(self) -> None:
         if self._expected_frame == "world":
             return
@@ -346,14 +367,13 @@ class ResultWriterNode:
             ],
         }
 
-    def _write_result_file_locked(self) -> None:
-        payload = self._payload_locked()
-        self._result_path.parent.mkdir(parents=True, exist_ok=True)
-
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
-            prefix=self._result_path.name + ".",
+            prefix=path.name + ".",
             suffix=".tmp",
-            dir=str(self._result_path.parent),
+            dir=str(path.parent),
             text=True,
         )
         try:
@@ -362,7 +382,7 @@ class ResultWriterNode:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary_name, self._result_path)
+            os.replace(temporary_name, path)
         except Exception:
             try:
                 os.unlink(temporary_name)
@@ -370,9 +390,15 @@ class ResultWriterNode:
                 pass
             raise
 
-    def _write_result_file(self) -> None:
+    def _write_result_file_locked(self, publish_public: bool = False) -> None:
+        payload = self._payload_locked()
+        self._write_json_atomic(self._runtime_result_path, payload)
+        if publish_public and self._result_path != self._runtime_result_path:
+            self._write_json_atomic(self._result_path, payload)
+
+    def _write_result_file(self, publish_public: bool = False) -> None:
         with self._lock:
-            self._write_result_file_locked()
+            self._write_result_file_locked(publish_public=publish_public)
 
     def _handle_reset(self, _request) -> TriggerResponse:
         with self._lock:

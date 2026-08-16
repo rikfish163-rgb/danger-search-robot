@@ -7,8 +7,8 @@ floor_world_z_offset:
   1: 2.6
   2: 5.2
 
-state_file: /root/catkin_ws/results/floor_state.json
-anchor_file: /root/catkin_ws/results/floor_transition_anchor.json
+state_file: /root/catkin_native/ros1_runtime/mission_state/floor_state.json
+anchor_file: /root/catkin_native/ros1_runtime/mission_state/floor_transition_anchor.json
 
 world_frame: world
 level_frame: map_level

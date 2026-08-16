@@ -14,8 +14,11 @@ import tf.transformations
 import tf2_ros
 from building_generator_interfaces.srv import CallElevator
 
-DEFAULT_STATE = os.path.expanduser('~/catkin_ws/results/floor_state.json')
-DEFAULT_ANCHOR = os.path.expanduser('~/catkin_ws/results/floor_transition_anchor.json')
+RUNTIME_ROOT = os.environ.get(
+    'ROS1_RUNTIME_ROOT', '/root/catkin_native/ros1_runtime'
+)
+DEFAULT_STATE = os.path.join(RUNTIME_ROOT, 'mission_state', 'floor_state.json')
+DEFAULT_ANCHOR = os.path.join(RUNTIME_ROOT, 'mission_state', 'floor_transition_anchor.json')
 
 
 def atomic_write(path, payload):

@@ -27,7 +27,14 @@ from std_srvs.srv import Empty, Trigger
 
 ROOT = Path("/root/catkin_ws")
 RESULTS = ROOT / "results"
-STATE_PATH = RESULTS / "floor_state.json"
+RUNTIME_ROOT = Path(os.environ.get(
+    "ROS1_RUNTIME_ROOT", "/root/catkin_native/ros1_runtime"))
+STATE_PATH = Path(os.environ.get(
+    "FLOOR_STATE_FILE",
+    str(RUNTIME_ROOT / "mission_state" / "floor_state.json")))
+ANCHOR_PATH = Path(os.environ.get(
+    "FLOOR_ANCHOR_FILE",
+    str(RUNTIME_ROOT / "mission_state" / "floor_transition_anchor.json")))
 # Keep high-frequency runtime writes off the NTFS bind mount.  The workspace
 # remains the source of truth for ROS state/configuration; a separate
 # post-run publisher copies final diagnostics back to RESULTS.
@@ -49,7 +56,24 @@ TRANSITION_MAX_TRANSLATION_STD = float(
     os.environ.get("TRANSITION_MAX_TRANSLATION_STD", "0.2"))
 FINE_VIEW_HOLD_WALL_SECONDS = float(
     os.environ.get("FINE_VIEW_HOLD_WALL_SECONDS", "12.0"))
-EXPECTED_DANGER_COUNT = int(os.environ.get("EXPECTED_DANGER_COUNT", "5"))
+
+
+def load_expected_danger_count():
+    """Use an explicit test override or the current scene truth contract."""
+    override = os.environ.get("EXPECTED_DANGER_COUNT")
+    if override is not None:
+        return int(override)
+    truth_path = RESULTS / "danger_truth.json"
+    try:
+        truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RuntimeError(
+            "cannot load generated danger truth for acceptance: %s" % error)
+    sources = truth.get("danger_sources")
+    if not isinstance(sources, list):
+        raise RuntimeError(
+            "generated danger truth has no danger_sources list")
+    return len(sources)
 
 # Keep the coarse room-center sweep on every floor.  These extra points are
 # geometry-derived inspection views for rooms where furniture or the camera's
@@ -91,6 +115,7 @@ class Runner:
         self.last_confirmed = None
         self.start_reference = None
         self.prepare_log_paths = []
+        self.expected_danger_count = load_expected_danger_count()
 
         self._subscribers = [
             rospy.Subscriber("/danger_observation", DangerObservation,
@@ -356,6 +381,8 @@ class Runner:
         command = [
             "/usr/bin/python3",
             "src/danger_search_robot/scripts/elevator_floor_transition.py",
+            "--state-file", str(STATE_PATH),
+            "--anchor-file", str(ANCHOR_PATH),
             "prepare", "--target-floor", str(target),
             "--body-frame", "truth_base",
             "--sample-count", "40", "--sample-rate", "10.0",
@@ -416,7 +443,7 @@ class Runner:
             raise RuntimeError("move transition failed %d -> %d" % (source, target))
 
         now = float(rospy.Time.now().to_sec())
-        anchor_path = RESULTS / "floor_transition_anchor.json"
+        anchor_path = ANCHOR_PATH
         anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
         anchor["status"] = "ELEVATOR_ARRIVED"
         anchor["elevator_id"] = "elevator_main"
@@ -433,8 +460,7 @@ class Runner:
         state["previous_floor"] = source
         state["current_floor"] = target
         state["last_transition_id"] = json.loads(
-            (RESULTS / "floor_transition_anchor.json").read_text(
-                encoding="utf-8"))["transition_id"]
+            ANCHOR_PATH.read_text(encoding="utf-8"))["transition_id"]
         state["updated_at_ros_time"] = now
         STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n",
                               encoding="utf-8")
@@ -487,6 +513,7 @@ class Runner:
         self.log("pipeline reset: target=%s writer=%s start=%s" %
                  (target_reset, writer_reset, writer_start))
         self.log("FULL THREE-FLOOR RUN START")
+        self.log("EXPECTED DANGER SOURCES=%d" % self.expected_danger_count)
         try:
             self.scan_floor(0)
             self.transition(0, 1)
@@ -494,10 +521,11 @@ class Runner:
             self.transition(1, 2)
             self.scan_floor(2)
             self.final_return()
-            if len(self.confirmed_positions) < EXPECTED_DANGER_COUNT:
+            if len(self.confirmed_positions) < self.expected_danger_count:
                 raise RuntimeError(
                     "confirmed danger count %d/%d" % (
-                        len(self.confirmed_positions), EXPECTED_DANGER_COUNT))
+                        len(self.confirmed_positions),
+                        self.expected_danger_count))
             finalized = self.finalize_writer()
             self.log("result writer finalize: %s" % finalized)
             result = {
@@ -507,6 +535,7 @@ class Runner:
                 "elapsed_ros": float(rospy.Time.now().to_sec()) - self.started_ros,
                 "elapsed_wall": time.time() - self.started_wall,
                 "view_count": self.view_count,
+                "expected_danger_count": self.expected_danger_count,
                 "valid_positions": self.valid_positions,
                 "confirmed_positions": self.confirmed_positions,
                 "floor_records": self.floor_records,
@@ -523,6 +552,7 @@ class Runner:
                 "elapsed_ros": float(rospy.Time.now().to_sec()) - self.started_ros,
                 "elapsed_wall": time.time() - self.started_wall,
                 "view_count": self.view_count,
+                "expected_danger_count": self.expected_danger_count,
                 "valid_positions": self.valid_positions,
                 "confirmed_positions": self.confirmed_positions,
                 "floor_records": self.floor_records,
