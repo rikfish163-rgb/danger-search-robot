@@ -181,11 +181,15 @@ def _append_foundation(model: ET.Element, layout: BuildingLayout) -> None:
 
 
 def _append_entrance_apron(model: ET.Element, layout: BuildingLayout) -> None:
+    # Keep the entrance visually distinct without creating a step that the
+    # simulated quadruped has to climb.  The generated floor slab ends at
+    # z=0; the old 8 cm raised collision made the direct entry controller
+    # press into the lip indefinitely even with the door panels open.
     _append_box(
         model,
         name="entrance_apron",
-        size=(4.5, 2.4, 0.08),
-        pose=(0.0, -1.2, 0.04, 0.0, 0.0, 0.0),
+        size=(4.5, 2.4, 0.02),
+        pose=(0.0, -1.2, 0.01, 0.0, 0.0, 0.0),
         color="0.62 0.62 0.64 1",
     )
 

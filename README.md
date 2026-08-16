@@ -108,3 +108,29 @@ tools/run_three_floor_rerun.sh
 `prepare_exploration_stack.sh` 会初始化 0 层状态、打开入口和三部电梯门，按依赖顺序启动真值 TF、Gazebo RGB/深度桥接、vision_stack 和 FAST-LIO 二维投影。`run_three_floor_rerun.sh` 启动前还会检查 ROS master、关键节点、点云/RGB/深度/YOLO 发布者和电梯/地图服务；检查不通过就退出，不会把“视觉没启动”的过程误记成探索结果。
 
 探索任务的高频日志先写入容器 `/tmp`。任务进程退出后，`tools/publish_three_floor_runtime.sh` 才在有超时保护的独立步骤中把摘要和主日志发布回 `results/`，避免 NTFS bind mount 的慢 I/O 把 ROS 回调和任务主进程一起卡在 `D` 状态。Gazebo 使用软件渲染时仍可能低于实时速度；这属于性能风险，不应与容器/ROS 主节点串线混为一谈。
+
+## 下次快速复刻（固定基线）
+
+本仓库已经把上一次验收过的运行环境固定为一个可复刻基线：
+
+- Docker 镜像 `danger-search-robot/ros1-fixed:20260816`，ID 为
+  `sha256:433e256ca01f0333da51020a4a9d909334ef36ec5720e32e86bf49eded63cd89`；
+- 容器 `simenv-ros1-recovery`，私有网络 `ros1-simenv-recovery`，原生构建空间为
+  `/dev/shm/ros1_recovery`；
+- 三层四房间场景种子 `3632072`，危险源 4 个、干扰物 8 个；场景生成物已锁定在
+  `generated_building/`，入口台阶修复也已锁定在生成器 exporter 中；
+- 固定运行时包含 RGB/depth bridge，且 YOLO/投影节点的原生二进制 SHA256 也会在启动前检查。
+
+下一次在本机直接执行，不要手工重新拼启动顺序：
+
+```bash
+cd "/media/hetaisheng/044A81D94A81C83E/catkin_ws0810 移动不卡死，可以倒车/catkin_ws"
+tools/replay_ros1_fixed.sh check
+tools/replay_ros1_fixed.sh all
+```
+
+`all` 会重启这个固定容器以清掉残留 ROS/Gazebo 进程，按固定种子重新生成场景，初始化三层探索栈，执行完整三层搜索，最后调用官方 Gitee evaluator。上次同一基线的客观验收是 `truth=4 / detected=4 / correct=4 / missed=0 / false_alarms=0 / total=37/37`，探索时间 `357.80s`。
+
+只需要启动而不立即跑任务时使用 `tools/replay_ros1_fixed.sh start`；需要从零重启仿真使用 `tools/replay_ros1_fixed.sh restart`；只重置支持栈使用 `tools/replay_ros1_fixed.sh prepare`。固定参数和校验值集中在 `tools/ros1_fixed_baseline.env`，入口脚本会在任务前拒绝镜像、场景、挂载或原生二进制不一致的状态。
+
+不要直接运行不带 `SEED` 的 `src/SimEnv/auto.sh`，因为它会随机生成另一套建筑和危险源位置；复刻任务统一走 `tools/replay_ros1_fixed.sh`。

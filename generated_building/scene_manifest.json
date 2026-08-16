@@ -23,7 +23,7 @@
     "team_scene_info_file": "/root/catkin_ws/generated_building/team_scene_info.json",
     "velocity_command_topic": "/cmd_vel"
   },
-  "danger_count": 5,
+  "danger_count": 4,
   "distractor_count": 8,
   "door_config": "/root/catkin_ws/generated_building/door_config.yaml",
   "elevator_config": "/root/catkin_ws/generated_building/elevator_config.yaml",
@@ -57,8 +57,8 @@
     "z": 0.6
   },
   "schema": "competition_scene_manifest_v1",
-  "seed": 1000,
-  "source_count": 13,
+  "seed": 3632072,
+  "source_count": 12,
   "team_scene_info": "/root/catkin_ws/generated_building/team_scene_info.json",
   "truth_file": "/root/catkin_ws/results/danger_truth.json",
   "validation_report": "/root/catkin_ws/generated_building/generation_checks.json",
