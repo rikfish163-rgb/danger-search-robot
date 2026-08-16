@@ -3,6 +3,7 @@
 import math
 import os
 import sys
+import threading
 import time
 import yaml
 
@@ -51,6 +52,12 @@ class MissionManager:
             "~entry_odom_topic",
             "/Odometry_gazebo",
         )
+        # The documented fixed-Gazebo flow uses the truth odometry for the
+        # short entrance leg, then hands control to move_base/TEB.  Keep that
+        # compatibility when the parameter is absent, while allowing a
+        # deployment to explicitly force either mode.  The preparation script
+        # removes stale private parameters before a new mission, so an old
+        # explicit choice cannot silently leak into the next run.
         entry_direct_param = rospy.get_param(
             "~entry_direct_control",
             None,
@@ -84,6 +91,7 @@ class MissionManager:
         if self.entry_heading_threshold <= 0.0:
             raise RuntimeError("entry_heading_threshold must be > 0")
         self.entry_pose = None
+        self._entry_lock = threading.RLock()
         self.entry_cmd_pub = None
         self.entry_odom_sub = None
         if self.entry_direct_control:
@@ -164,12 +172,31 @@ class MissionManager:
         return Twist()
 
     def _release_entry_control(self):
-        if self.entry_cmd_pub is not None:
-            self.entry_cmd_pub.unregister()
+        with self._entry_lock:
+            entry_cmd_pub = self.entry_cmd_pub
+            entry_odom_sub = self.entry_odom_sub
             self.entry_cmd_pub = None
-        if self.entry_odom_sub is not None:
-            self.entry_odom_sub.unregister()
             self.entry_odom_sub = None
+            if entry_cmd_pub is not None:
+                entry_cmd_pub.unregister()
+            if entry_odom_sub is not None:
+                entry_odom_sub.unregister()
+
+    def _publish_entry_command(self, command):
+        """Publish direct-entry commands without a shutdown race.
+
+        rospy invokes shutdown callbacks while the main mission loop may be
+        between two 20 Hz publishes.  Guarding both the publisher lookup and
+        unregister prevents the old ``NoneType.publish`` crash and makes a
+        shutdown deterministically fail closed.
+        """
+
+        with self._entry_lock:
+            publisher = self.entry_cmd_pub
+            if publisher is None or rospy.is_shutdown():
+                return False
+            publisher.publish(command)
+            return True
 
     def navigate_through_waypoint_direct(self, waypoint_name, point):
         """Cross the simulated entrance with a closed-loop forward leg.
@@ -182,7 +209,9 @@ class MissionManager:
         met.  Normal room/elevator navigation remains move_base-controlled.
         """
 
-        if self.entry_cmd_pub is None:
+        with self._entry_lock:
+            entry_available = self.entry_cmd_pub is not None
+        if not entry_available:
             raise RuntimeError(
                 "direct entry requested without an entry command publisher"
             )
@@ -204,7 +233,7 @@ class MissionManager:
         stable_cycles = 0
         while not rospy.is_shutdown():
             if time.monotonic() >= deadline:
-                self.entry_cmd_pub.publish(self._zero_twist())
+                self._publish_entry_command(self._zero_twist())
                 self.publish_status("TIMEOUT_" + waypoint_name)
                 rospy.logerr(
                     "Direct entry to %s timed out after %.1f seconds "
@@ -218,7 +247,8 @@ class MissionManager:
 
             pose = self.entry_pose
             if pose is None:
-                self.entry_cmd_pub.publish(self._zero_twist())
+                if not self._publish_entry_command(self._zero_twist()):
+                    return False
                 time.sleep(0.05)
                 continue
 
@@ -228,7 +258,8 @@ class MissionManager:
                 point["y"] - current_y,
             )
             if distance <= self.intermediate_reach_tolerance:
-                self.entry_cmd_pub.publish(self._zero_twist())
+                if not self._publish_entry_command(self._zero_twist()):
+                    return False
                 stable_cycles += 1
                 if stable_cycles >= 8:
                     self.publish_status("PASSED_" + waypoint_name)
@@ -263,10 +294,11 @@ class MissionManager:
                     -0.25,
                     min(0.25, 0.6 * heading_error),
                 )
-            self.entry_cmd_pub.publish(command)
+            if not self._publish_entry_command(command):
+                return False
             time.sleep(0.05)
 
-        self.entry_cmd_pub.publish(self._zero_twist())
+        self._publish_entry_command(self._zero_twist())
         self._release_entry_control()
         return False
 
@@ -623,8 +655,8 @@ class MissionManager:
     def cancel_navigation(self):
         if hasattr(self, "move_base_client"):
             self.move_base_client.cancel_all_goals()
-        if self.entry_cmd_pub is not None:
-            self.entry_cmd_pub.publish(self._zero_twist())
+        if hasattr(self, "_entry_lock"):
+            self._publish_entry_command(self._zero_twist())
             self._release_entry_control()
 
     def run(self):

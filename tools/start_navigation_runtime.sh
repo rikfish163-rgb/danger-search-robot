@@ -30,6 +30,38 @@ topic_present() {
   rostopic list 2>/dev/null | grep -Fxq "$1"
 }
 
+wait_for_tf() {
+  local parent_frame="$1"
+  local child_frame="$2"
+  local deadline=$((SECONDS + WAIT_SECONDS))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local sample
+    sample="$(timeout --foreground 5s rosrun tf tf_echo "$parent_frame" "$child_frame" 2>&1 || true)"
+    if grep -q "^At time" <<<"$sample"; then
+      echo "navigation TF ready: $parent_frame->$child_frame"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "navigation TF failed to appear: $parent_frame->$child_frame" >&2
+  return 1
+}
+
+wait_for_mapping_health() {
+  local deadline=$((SECONDS + WAIT_SECONDS))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local sample
+    sample="$(timeout --foreground 5s rostopic echo -n 1 /mapping_health 2>&1 || true)"
+    if grep -q 'healthy.*true' <<<"$sample"; then
+      echo "mapping health ready: /mapping_health healthy=true"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "mapping health failed to become healthy" >&2
+  return 1
+}
+
 wait_for_node() {
   local node="$1"
   local deadline=$((SECONDS + WAIT_SECONDS))
@@ -111,6 +143,8 @@ for topic in /clock "$MAP_TOPIC" /Odometry_gazebo; do
     exit 78
   fi
 done
+wait_for_tf world body
+wait_for_mapping_health
 
 if node_present /move_base; then
   active_global_map="$(rosparam get /move_base/global_costmap/static_layer/map_topic 2>/dev/null || true)"

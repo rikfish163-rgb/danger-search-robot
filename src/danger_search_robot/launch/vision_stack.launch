@@ -163,9 +163,19 @@
     <param name="model_path"
            value="$(find quadruped_vision)/weights/best.pt"/>
 
-    <!-- RTX 5060当前Torch版本不支持，固定使用CPU -->
+    <!-- The fixed image uses CPU inference; the YAML caps its load so it
+         cannot starve Gazebo and navigation. -->
     <param name="device"
            value="cpu"/>
+
+    <env name="OMP_NUM_THREADS"
+         value="2"/>
+
+    <env name="MKL_NUM_THREADS"
+         value="2"/>
+
+    <env name="OPENBLAS_NUM_THREADS"
+         value="2"/>
 
     <env name="CUDA_VISIBLE_DEVICES"
          value=""/>
