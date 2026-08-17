@@ -144,4 +144,4 @@ tools/replay_ros1_fixed.sh all
 tools/record_three_floor_replay.sh
 ```
 
-该入口会在固定 `:99` Xvfb 显示器上打开 Gazebo GUI，录制从重启仿真、三层探索到官方评分的全过程。视频先写入 `/dev/shm`，任务结束后保存为 `results/three_floor_exploration_YYYYMMDD_HHMMSS.mp4`；`results/` 是运行产物，不提交到 GitHub。录屏会比 `GUI=false` 验收模式更慢，这是为了保留可视化过程，不代表基础运行时发生变化。
+该入口默认录制机器狗第一视角，而不是 Gazebo 固定世界窗口：它在容器内生成一个跟随 A1 位姿的头部高度 POV 相机，从 `/exploration_camera/exploration_camera/image_raw` 直接取 RGB 帧，通过宿主机 ffmpeg 保存从准备、三层探索、上下楼到官方评分的全过程。任务本身使用 `GUI=false`，避免固定 Gazebo GUI 把实时因子压低；视频保存为 `results/three_floor_robot_pov_YYYYMMDD_HHMMSS.mp4`，`results/` 是运行产物，不提交到 GitHub。

@@ -374,15 +374,18 @@ run_mission() {
     die "ROS/Gazebo is not ready; run tools/replay_ros1_fixed.sh prepare first"
   fi
   local runtime_dir="${THREE_FLOOR_RUNTIME_DIR:-/tmp/three_floor_replay_$(date +%Y%m%d_%H%M%S)}"
+  local view_hold="${REPLAY_VIEW_HOLD_WALL_SECONDS:-4.0}"
+  local fine_view_hold="${REPLAY_FINE_VIEW_HOLD_WALL_SECONDS:-4.0}"
+  local wall_view_hold="${REPLAY_WALL_VIEW_HOLD_WALL_SECONDS:-3.0}"
   echo "running full three-floor mission: runtime=$runtime_dir"
   docker_bash_timeout "${MISSION_TIMEOUT_SECONDS:-1200}" "source /opt/ros/noetic/setup.bash; \
     source /root/catkin_ws/devel/setup.bash; \
     export \
     EXPECTED_DANGER_COUNT=$BASELINE_DANGER_COUNT \
     FINE_ALL_ROOMS=1 FINE_WALL_VIEWS=1 \
-    VIEW_HOLD_WALL_SECONDS=4.0 \
-    FINE_VIEW_HOLD_WALL_SECONDS=4.0 \
-    WALL_VIEW_HOLD_WALL_SECONDS=3.0 \
+    VIEW_HOLD_WALL_SECONDS=$view_hold \
+    FINE_VIEW_HOLD_WALL_SECONDS=$fine_view_hold \
+    WALL_VIEW_HOLD_WALL_SECONDS=$wall_view_hold \
     THREE_FLOOR_RUNTIME_DIR=$runtime_dir; \
     tools/run_three_floor_rerun.sh"
 }
