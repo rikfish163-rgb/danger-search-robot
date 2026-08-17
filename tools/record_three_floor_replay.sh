@@ -27,12 +27,19 @@ POV_FPS="${THREE_FLOOR_POV_FPS:-10}"
 
 VIDEO_NAME="${THREE_FLOOR_VIDEO_NAME:-three_floor_robot_pov_$(date +%Y%m%d_%H%M%S).mp4}"
 VIDEO_PATH="$RESULTS_DIR/$VIDEO_NAME"
+VIDEO_STEM="${VIDEO_NAME%.mp4}"
+ANNOTATED_VIDEO_PATH="$RESULTS_DIR/${VIDEO_STEM}_annotated.mp4"
+TIMELINE_PATH="$RESULTS_DIR/${VIDEO_STEM}_timeline.json"
+SUBTITLES_PATH="$RESULTS_DIR/${VIDEO_STEM}_timeline.srt"
+STREAM_METADATA_PATH="$RESULTS_DIR/${VIDEO_STEM}_stream.log"
+MISSION_LOG_PATH="${THREE_FLOOR_MISSION_LOG:-$RESULTS_DIR/retry_three_floor_full_run.log}"
 TMP_VIDEO="/dev/shm/three_floor_robot_pov_$$.mp4"
 STREAM_LOG="/dev/shm/three_floor_robot_pov_$$.stream.log"
 FFMPEG_LOG="/dev/shm/three_floor_robot_pov_$$.ffmpeg.log"
 FOLLOW_PID_FILE="/tmp/three_floor_robot_pov_$$.follow.pid"
 STREAM_PID=""
 RECORDING_PUBLISHED=0
+STREAM_METADATA_PUBLISHED=0
 
 die() {
   echo "three-floor robot POV recording FAILED: $*" >&2
@@ -75,6 +82,35 @@ publish_recording() {
   else
     echo "robot POV recording file was not produced: $TMP_VIDEO" >&2
   fi
+  if [ -f "$STREAM_LOG" ]; then
+    cp "$STREAM_LOG" "$STREAM_METADATA_PATH"
+    STREAM_METADATA_PUBLISHED=1
+    echo "robot POV frame timing sidecar saved: $STREAM_METADATA_PATH"
+  fi
+}
+
+annotate_recording() {
+  if [ "${THREE_FLOOR_ANNOTATE_VIDEO:-1}" = "0" ]; then
+    echo "annotated video disabled: THREE_FLOOR_ANNOTATE_VIDEO=0"
+    return
+  fi
+  [ -f "$VIDEO_PATH" ] || die "cannot annotate missing video: $VIDEO_PATH"
+  [ -f "$MISSION_LOG_PATH" ] || die "cannot annotate without mission log: $MISSION_LOG_PATH"
+
+  local frame_log_args=()
+  if [ -f "$STREAM_METADATA_PATH" ]; then
+    frame_log_args=(--frame-log "$STREAM_METADATA_PATH")
+  else
+    echo "frame timing sidecar is unavailable; annotation will use approximate alignment" >&2
+  fi
+  python3 "$ROOT_DIR/tools/annotate_exploration_video.py" \
+    --video "$VIDEO_PATH" \
+    --log "$MISSION_LOG_PATH" \
+    "${frame_log_args[@]}" \
+    --output "$ANNOTATED_VIDEO_PATH" \
+    --timeline "$TIMELINE_PATH" \
+    --subtitles "$SUBTITLES_PATH"
+  echo "annotated robot POV recording saved: $ANNOTATED_VIDEO_PATH"
 }
 
 finish_recording() {
@@ -136,7 +172,7 @@ docker exec "$CONTAINER_NAME" bash -lc "
   source /opt/ros/noetic/setup.bash
   source /root/catkin_ws/devel/setup.bash
   exec python3 -u /root/catkin_ws/tools/stream_ros_image.py \
-    --topic '$CAMERA_TOPIC' --fps '$POV_FPS' --wait-timeout 30
+    --topic '$CAMERA_TOPIC' --fps '$POV_FPS' --wait-timeout 30 --emit-frame-times
 " 2>"$STREAM_LOG" |
   ffmpeg -hide_banner -loglevel warning -y \
     -f rawvideo -pixel_format rgb24 -video_size 640x480 \
@@ -174,4 +210,5 @@ ffprobe -v error \
   -show_entries format=duration:stream=codec_name,width,height \
   -of default=noprint_wrappers=1 "$TMP_VIDEO"
 publish_recording
+annotate_recording
 echo "full three-floor robot POV recording and score completed"

@@ -144,4 +144,11 @@ tools/replay_ros1_fixed.sh all
 tools/record_three_floor_replay.sh
 ```
 
-该入口默认录制机器狗自身的 RGB 传感器，而不是 Gazebo 固定世界窗口：从视觉管线实际使用的 `/sim_rgb/image_raw` 直接取 RGB 帧，通过宿主机 ffmpeg 保存从准备、三层探索、上下楼到官方评分的全过程。任务本身使用 `GUI=false`，避免固定 Gazebo GUI 把实时因子压低；视频保存为 `results/three_floor_robot_pov_YYYYMMDD_HHMMSS.mp4`，`results/` 是运行产物，不提交到 GitHub。只有显式设置 `THREE_FLOOR_POV_CAMERA_MODE=standalone` 时，才会使用额外的跟随相机调试模式。
+该入口默认录制机器狗自身的 RGB 传感器，而不是 Gazebo 固定世界窗口：从视觉管线实际使用的 `/sim_rgb/image_raw` 直接取 RGB 帧，通过宿主机 ffmpeg 保存从准备、三层探索、上下楼到官方评分的全过程。任务本身使用 `GUI=false`，避免固定 Gazebo GUI 把实时因子压低；视频保存为 `results/three_floor_robot_pov_YYYYMMDD_HHMMSS.mp4`，`results/` 是运行产物，不提交到 GitHub。录制器还会保存逐帧 epoch 时钟侧车，并自动生成：
+
+- `*_annotated.mp4`：机器狗视角视频，画面内标出三层开始/完成、电梯上下楼、到达楼层、红球最终确认、返回起点等节点；
+- `*_timeline.json`：每个节点同时给出任务日志时间、视频时间、红球候选/确认坐标和是否为最终确认；
+- `*_timeline.srt`：可独立加载到播放器的字幕轨道；
+- `*_stream.log`：逐帧 epoch 时钟侧车，使事件能匹配到编码帧。旧视频没有这个侧车时，工具会明确把时间标成近似线性对齐。
+
+只有显式设置 `THREE_FLOOR_POV_CAMERA_MODE=standalone` 时，才会使用额外的跟随相机调试模式。若只需要原始视频而不渲染字幕，可设置 `THREE_FLOOR_ANNOTATE_VIDEO=0`。

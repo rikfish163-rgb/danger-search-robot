@@ -128,6 +128,10 @@ class Runner:
         self.start_reference = None
         self.prepare_log_paths = []
         self.expected_danger_count = load_expected_danger_count()
+        # The robot-POV recorder writes epoch timestamps for encoded frames.
+        # Persist the mission logger's epoch origin so the post-run timeline
+        # can match events to video frames instead of guessing from duration.
+        self.log("MISSION_WALL_ORIGIN_EPOCH=%.6f" % self.started_wall)
 
         self._subscribers = [
             rospy.Subscriber("/danger_observation", DangerObservation,

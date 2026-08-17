@@ -54,13 +54,15 @@ def packed_frame(message):
 
 
 class ImageStreamer:
-    def __init__(self, topic, fps):
+    def __init__(self, topic, fps, emit_frame_times=False):
         self.topic = topic
         self.period = 1.0 / max(float(fps), 0.1)
+        self.emit_frame_times = emit_frame_times
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.spec = None
         self.last_emit = 0.0
+        self.frame_index = 0
         self.error = None
 
     def callback(self, message):
@@ -107,6 +109,15 @@ class ImageStreamer:
         except BrokenPipeError:
             self.stop.set()
             rospy.signal_shutdown("ffmpeg pipe closed")
+            return
+        if self.emit_frame_times:
+            print(
+                "frame timestamp: index=%d epoch=%.6f"
+                % (self.frame_index, time.time()),
+                file=sys.stderr,
+                flush=True,
+            )
+        self.frame_index += 1
 
 
 def main():
@@ -114,10 +125,15 @@ def main():
     parser.add_argument("--topic", required=True)
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--wait-timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--emit-frame-times",
+        action="store_true",
+        help="write one epoch wall-clock line per emitted frame to stderr",
+    )
     args = parser.parse_args()
 
     rospy.init_node("robot_pov_image_stream", anonymous=True, disable_signals=True)
-    streamer = ImageStreamer(args.topic, args.fps)
+    streamer = ImageStreamer(args.topic, args.fps, args.emit_frame_times)
     rospy.Subscriber(
         args.topic,
         Image,
