@@ -375,7 +375,9 @@ run_mission() {
   fi
   local runtime_dir="${THREE_FLOOR_RUNTIME_DIR:-/tmp/three_floor_replay_$(date +%Y%m%d_%H%M%S)}"
   echo "running full three-floor mission: runtime=$runtime_dir"
-  docker_bash_timeout "${MISSION_TIMEOUT_SECONDS:-1200}" "export \
+  docker_bash_timeout "${MISSION_TIMEOUT_SECONDS:-1200}" "source /opt/ros/noetic/setup.bash; \
+    source /root/catkin_ws/devel/setup.bash; \
+    export \
     EXPECTED_DANGER_COUNT=$BASELINE_DANGER_COUNT \
     FINE_ALL_ROOMS=1 FINE_WALL_VIEWS=1 \
     VIEW_HOLD_WALL_SECONDS=4.0 \
