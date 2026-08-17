@@ -18,6 +18,7 @@ CONTAINER_HELPER="$ROOT_DIR/tools/ros1_fixed_container.sh"
 CONTAINER_NAME="$BASELINE_CONTAINER_NAME"
 IMAGE_REF="$BASELINE_IMAGE_REF"
 DISPLAY_VALUE="${ROS1_DISPLAY:-$BASELINE_DISPLAY}"
+GAZEBO_GUI="${REPLAY_GAZEBO_GUI:-false}"
 
 LOCKED_PATHS=(
   generated_building/building_config.json
@@ -53,6 +54,9 @@ The normal next-run command is:
 
 Set ALLOW_BASELINE_DRIFT=1 only for deliberate debugging of a changed checkout.
 It does not change the Docker image or native-binary checks.
+
+Set REPLAY_GAZEBO_GUI=true when the Xvfb Gazebo window must be visible for a
+screen recording.  The default false is the faster scoring configuration.
 
 If /dev/shm was cleared, the native build/devel backup is restored automatically
 from BASELINE_NATIVE_ARCHIVE_HOST.  If that host backup is unavailable, build
@@ -305,6 +309,10 @@ start_roscore() {
 }
 
 launch_seeded_sim() {
+  case "$GAZEBO_GUI" in
+    true|false) ;;
+    *) die "REPLAY_GAZEBO_GUI must be true or false, got: $GAZEBO_GUI" ;;
+  esac
   echo "launching seeded Gazebo scene: seed=$BASELINE_SCENE_SEED"
   docker_bash "nohup env \
     SEED=$BASELINE_SCENE_SEED \
@@ -313,7 +321,7 @@ launch_seeded_sim() {
     BUILDING_WIDTH=20.0 BUILDING_LENGTH=36.0 \
     DANGER_COUNT=$BASELINE_DANGER_COUNT_SPEC \
     DISTRACTOR_COUNT=$BASELINE_DISTRACTOR_COUNT_SPEC \
-    GUI=false PAUSED=true AUTO_UNPAUSE=1 AUTO_UNPAUSE_DELAY=6 \
+    GUI=$GAZEBO_GUI PAUSED=true AUTO_UNPAUSE=1 AUTO_UNPAUSE_DELAY=6 \
     START_CONTROLLER=1 CONTROLLER_FOREGROUND=0 START_VIRTUAL_JOY=0 \
     START_BUILDING_CONTROL=1 ENABLE_SENSOR_DATA=1 ENABLE_LIVOX=1 \
     ENABLE_REALSENSE=1 ENABLE_REALSENSE_ROS_PLUGIN=0 ENABLE_FRONT_CAMERA=0 \

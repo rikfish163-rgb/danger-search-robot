@@ -137,3 +137,11 @@ tools/replay_ros1_fixed.sh all
 只需要启动而不立即跑任务时使用 `tools/replay_ros1_fixed.sh start`；需要从零重启仿真使用 `tools/replay_ros1_fixed.sh restart`；只重置支持栈使用 `tools/replay_ros1_fixed.sh prepare`。固定参数和校验值集中在 `tools/ros1_fixed_baseline.env`，入口脚本会在任务前拒绝镜像、场景、挂载或原生二进制不一致的状态。
 
 不要直接运行不带 `SEED` 的 `src/SimEnv/auto.sh`，因为它会随机生成另一套建筑和危险源位置；复刻任务统一走 `tools/replay_ros1_fixed.sh`。
+
+需要录制完整三层过程时使用：
+
+```bash
+tools/record_three_floor_replay.sh
+```
+
+该入口会在固定 `:99` Xvfb 显示器上打开 Gazebo GUI，录制从重启仿真、三层探索到官方评分的全过程。视频先写入 `/dev/shm`，任务结束后保存为 `results/three_floor_exploration_YYYYMMDD_HHMMSS.mp4`；`results/` 是运行产物，不提交到 GitHub。录屏会比 `GUI=false` 验收模式更慢，这是为了保留可视化过程，不代表基础运行时发生变化。
