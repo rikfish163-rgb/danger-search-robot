@@ -84,7 +84,8 @@ ffmpeg -hide_banner -loglevel error -y \
 test -s "$PROBE_PNG" || die "Gazebo display probe is empty"
 
 REPLAY_GAZEBO_GUI=true "$REPLAY" prepare
-REPLAY_GAZEBO_GUI=true "$REPLAY" run
+MISSION_TIMEOUT_SECONDS="${THREE_FLOOR_RECORD_TIMEOUT_SECONDS:-3600}" \
+  REPLAY_GAZEBO_GUI=true "$REPLAY" run
 REPLAY_GAZEBO_GUI=true "$REPLAY" score
 
 stop_recording
