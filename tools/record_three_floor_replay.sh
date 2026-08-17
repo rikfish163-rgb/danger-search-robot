@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Record one complete fixed three-floor replay from a camera that follows the
-# simulated A1. Gazebo's GUI camera is deliberately not used: the old x11grab
+# Record one complete fixed three-floor replay from the simulated A1's own
+# RGB sensor. Gazebo's GUI camera is deliberately not used: the old x11grab
 # recording showed a fixed entrance/world view instead of the robot's
-# perspective. The POV sensor is attached to the A1 pose and streamed from
-# its ROS image topic to host-side ffmpeg.
+# perspective. The default stream is the same RGB topic consumed by the live
+# vision pipeline; an attached standalone camera remains available only as an
+# explicit debug mode.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPLAY="$ROOT_DIR/tools/replay_ros1_fixed.sh"
@@ -15,8 +16,9 @@ BASELINE_FILE="$ROOT_DIR/tools/ros1_fixed_baseline.env"
 source "$BASELINE_FILE"
 
 CONTAINER_NAME="$BASELINE_CONTAINER_NAME"
+CAMERA_MODE="${THREE_FLOOR_POV_CAMERA_MODE:-robot_sensor}"
 CAMERA_MODEL="${THREE_FLOOR_POV_CAMERA_MODEL:-exploration_rgb_camera}"
-CAMERA_TOPIC="${THREE_FLOOR_POV_CAMERA_TOPIC:-/exploration_camera/exploration_camera/image_raw}"
+CAMERA_TOPIC="${THREE_FLOOR_POV_CAMERA_TOPIC:-/sim_rgb/image_raw}"
 CAMERA_SDF="/root/catkin_ws/tools/exploration_rgb_camera.sdf"
 FOLLOW_SCRIPT="/root/catkin_ws/tools/follow_a1_rgb_camera.py"
 POV_OFFSET_X="${THREE_FLOOR_POV_OFFSET_X:-0.35}"
@@ -50,6 +52,9 @@ stop_stream() {
 }
 
 cleanup_pov_camera() {
+  if [ "$CAMERA_MODE" != "standalone" ]; then
+    return
+  fi
   container_bash "
     if [ -f '$FOLLOW_PID_FILE' ]; then
       follow_pid=\$(cat '$FOLLOW_PID_FILE' 2>/dev/null || true)
@@ -93,26 +98,38 @@ mkdir -p "$RESULTS_DIR"
 
 echo "restarting fixed headless simulation for robot POV recording"
 REPLAY_GAZEBO_GUI=false "$REPLAY" restart
+echo "preparing three-floor exploration stack"
+REPLAY_GAZEBO_GUI=false "$REPLAY" prepare
 
-echo "spawning robot POV camera: model=$CAMERA_MODEL topic=$CAMERA_TOPIC"
-container_bash "
-  source /opt/ros/noetic/setup.bash
-  source /root/catkin_ws/devel/setup.bash
-  if ! rosservice call /gazebo/get_model_state \"{model_name: '$CAMERA_MODEL', relative_entity_name: world}\" 2>/dev/null | grep -q 'success: True'; then
-    rosrun gazebo_ros spawn_model -sdf -file '$CAMERA_SDF' -model '$CAMERA_MODEL'
-  fi
-"
+case "$CAMERA_MODE" in
+  robot_sensor)
+    echo "recording A1 robot sensor: topic=$CAMERA_TOPIC"
+    ;;
+  standalone)
+    echo "spawning optional standalone POV camera: model=$CAMERA_MODEL topic=$CAMERA_TOPIC"
+    container_bash "
+      source /opt/ros/noetic/setup.bash
+      source /root/catkin_ws/devel/setup.bash
+      if ! rosservice call /gazebo/get_model_state \"{model_name: '$CAMERA_MODEL', relative_entity_name: world}\" 2>/dev/null | grep -q 'success: True'; then
+        rosrun gazebo_ros spawn_model -sdf -file '$CAMERA_SDF' -model '$CAMERA_MODEL'
+      fi
+    "
 
-echo "starting camera follower: offset_x=$POV_OFFSET_X offset_z=$POV_OFFSET_Z"
-container_bash "
-  source /opt/ros/noetic/setup.bash
-  source /root/catkin_ws/devel/setup.bash
-  export POV_CAMERA_MODEL='$CAMERA_MODEL'
-  export POV_CAMERA_OFFSET_X='$POV_OFFSET_X'
-  export POV_CAMERA_OFFSET_Z='$POV_OFFSET_Z'
-  nohup python3 '$FOLLOW_SCRIPT' >'/tmp/three_floor_robot_pov_$$.follow.log' 2>&1 < /dev/null &
-  echo \$! > '$FOLLOW_PID_FILE'
-"
+    echo "starting standalone camera follower: offset_x=$POV_OFFSET_X offset_z=$POV_OFFSET_Z"
+    container_bash "
+      source /opt/ros/noetic/setup.bash
+      source /root/catkin_ws/devel/setup.bash
+      export POV_CAMERA_MODEL='$CAMERA_MODEL'
+      export POV_CAMERA_OFFSET_X='$POV_OFFSET_X'
+      export POV_CAMERA_OFFSET_Z='$POV_OFFSET_Z'
+      nohup python3 '$FOLLOW_SCRIPT' >'/tmp/three_floor_robot_pov_$$.follow.log' 2>&1 < /dev/null &
+      echo \$! > '$FOLLOW_PID_FILE'
+    "
+    ;;
+  *)
+    die "unsupported THREE_FLOOR_POV_CAMERA_MODE=$CAMERA_MODE (use robot_sensor or standalone)"
+    ;;
+esac
 
 echo "starting ROS camera stream: $CAMERA_TOPIC"
 docker exec "$CONTAINER_NAME" bash -lc "
@@ -144,9 +161,6 @@ grep -Fq "stream ready:" "$STREAM_LOG" || {
   tail -n 80 "$STREAM_LOG" >&2 || true
   die "robot POV camera topic did not produce a frame"
 }
-
-echo "preparing three-floor exploration stack"
-REPLAY_GAZEBO_GUI=false "$REPLAY" prepare
 
 REPLAY_VIEW_HOLD_WALL_SECONDS="${THREE_FLOOR_POV_VIEW_HOLD_WALL_SECONDS:-1.5}" \
 REPLAY_FINE_VIEW_HOLD_WALL_SECONDS="${THREE_FLOOR_POV_FINE_VIEW_HOLD_WALL_SECONDS:-2.0}" \
