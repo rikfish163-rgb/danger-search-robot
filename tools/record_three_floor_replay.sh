@@ -37,6 +37,7 @@ TMP_VIDEO="/dev/shm/three_floor_robot_pov_$$.mp4"
 STREAM_LOG="/dev/shm/three_floor_robot_pov_$$.stream.log"
 FFMPEG_LOG="/dev/shm/three_floor_robot_pov_$$.ffmpeg.log"
 FOLLOW_PID_FILE="/tmp/three_floor_robot_pov_$$.follow.pid"
+CONTAINER_STREAM_PID_FILE="/tmp/three_floor_robot_pov_$$.stream.pid"
 STREAM_PID=""
 RECORDING_PUBLISHED=0
 STREAM_METADATA_PUBLISHED=0
@@ -51,6 +52,19 @@ container_bash() {
 }
 
 stop_stream() {
+  container_bash "
+    if [ -f '$CONTAINER_STREAM_PID_FILE' ]; then
+      stream_child=\$(cat '$CONTAINER_STREAM_PID_FILE' 2>/dev/null || true)
+      if [ -n \"\$stream_child\" ]; then
+        kill -INT \"\$stream_child\" 2>/dev/null || true
+        sleep 0.2
+        kill -TERM \"\$stream_child\" 2>/dev/null || true
+        sleep 0.2
+        kill -KILL \"\$stream_child\" 2>/dev/null || true
+      fi
+      rm -f '$CONTAINER_STREAM_PID_FILE'
+    fi
+  " >/dev/null 2>&1 || true
   if [ -n "$STREAM_PID" ] && kill -0 "$STREAM_PID" 2>/dev/null; then
     kill -INT "$STREAM_PID" 2>/dev/null || true
     wait "$STREAM_PID" 2>/dev/null || true
@@ -171,8 +185,17 @@ echo "starting ROS camera stream: $CAMERA_TOPIC"
 docker exec "$CONTAINER_NAME" bash -lc "
   source /opt/ros/noetic/setup.bash
   source /root/catkin_ws/devel/setup.bash
-  exec python3 -u /root/catkin_ws/tools/stream_ros_image.py \
-    --topic '$CAMERA_TOPIC' --fps '$POV_FPS' --wait-timeout 30 --emit-frame-times
+  stream_pid_file='$CONTAINER_STREAM_PID_FILE'
+  rm -f \"\$stream_pid_file\"
+  python3 -u /root/catkin_ws/tools/stream_ros_image.py \
+    --topic '$CAMERA_TOPIC' --fps '$POV_FPS' --wait-timeout 30 \
+    --emit-frame-times --repeat-latest &
+  stream_child=\$!
+  echo \"\$stream_child\" > \"\$stream_pid_file\"
+  wait \"\$stream_child\"
+  stream_status=\$?
+  rm -f \"\$stream_pid_file\"
+  exit \"\$stream_status\"
 " 2>"$STREAM_LOG" |
   ffmpeg -hide_banner -loglevel warning -y \
     -f rawvideo -pixel_format rgb24 -video_size 640x480 \

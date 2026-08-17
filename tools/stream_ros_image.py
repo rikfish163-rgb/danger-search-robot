@@ -54,16 +54,41 @@ def packed_frame(message):
 
 
 class ImageStreamer:
-    def __init__(self, topic, fps, emit_frame_times=False):
+    def __init__(self, topic, fps, emit_frame_times=False, repeat_latest=False):
         self.topic = topic
         self.period = 1.0 / max(float(fps), 0.1)
         self.emit_frame_times = emit_frame_times
+        self.repeat_latest = repeat_latest
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.spec = None
         self.last_emit = 0.0
+        self.frame_lock = threading.Lock()
+        self.latest_frame = None
         self.frame_index = 0
         self.error = None
+
+    def _emit_frame(self, frame):
+        try:
+            sys.stdout.buffer.write(frame)
+            sys.stdout.buffer.flush()
+        except BrokenPipeError:
+            self.stop.set()
+            rospy.signal_shutdown("ffmpeg pipe closed")
+            return False
+        if self.emit_frame_times:
+            print(
+                "frame timestamp: index=%d epoch=%.6f"
+                % (self.frame_index, time.time()),
+                file=sys.stderr,
+                flush=True,
+            )
+        self.frame_index += 1
+        return True
+
+    def get_latest_frame(self):
+        with self.frame_lock:
+            return self.latest_frame
 
     def callback(self, message):
         if self.stop.is_set():
@@ -81,15 +106,9 @@ class ImageStreamer:
             int(message.height),
             pixel_format,
         )
-        if self.spec is None:
+        first_spec = self.spec is None
+        if first_spec:
             self.spec = current_spec
-            self.ready.set()
-            print(
-                "stream ready: topic=%s width=%d height=%d pixel_format=%s"
-                % (self.topic, *current_spec),
-                file=sys.stderr,
-                flush=True,
-            )
         elif self.spec != current_spec:
             self.error = "image format changed from %s to %s" % (
                 self.spec,
@@ -99,25 +118,33 @@ class ImageStreamer:
             rospy.signal_shutdown(self.error)
             return
 
+        if self.repeat_latest:
+            with self.frame_lock:
+                self.latest_frame = frame
+            if first_spec:
+                self.ready.set()
+                print(
+                    "stream ready: topic=%s width=%d height=%d pixel_format=%s mode=repeat_latest"
+                    % (self.topic, *current_spec),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            return
+
+        if first_spec:
+            self.ready.set()
+            print(
+                "stream ready: topic=%s width=%d height=%d pixel_format=%s"
+                % (self.topic, *current_spec),
+                file=sys.stderr,
+                flush=True,
+            )
+
         now = time.monotonic()
         if now - self.last_emit < self.period:
             return
         self.last_emit = now
-        try:
-            sys.stdout.buffer.write(frame)
-            sys.stdout.buffer.flush()
-        except BrokenPipeError:
-            self.stop.set()
-            rospy.signal_shutdown("ffmpeg pipe closed")
-            return
-        if self.emit_frame_times:
-            print(
-                "frame timestamp: index=%d epoch=%.6f"
-                % (self.frame_index, time.time()),
-                file=sys.stderr,
-                flush=True,
-            )
-        self.frame_index += 1
+        self._emit_frame(frame)
 
 
 def main():
@@ -130,10 +157,17 @@ def main():
         action="store_true",
         help="write one epoch wall-clock line per emitted frame to stderr",
     )
+    parser.add_argument(
+        "--repeat-latest",
+        action="store_true",
+        help="emit at a fixed rate and hold the latest ROS frame between updates",
+    )
     args = parser.parse_args()
 
     rospy.init_node("robot_pov_image_stream", anonymous=True, disable_signals=True)
-    streamer = ImageStreamer(args.topic, args.fps, args.emit_frame_times)
+    streamer = ImageStreamer(
+        args.topic, args.fps, args.emit_frame_times, args.repeat_latest
+    )
     rospy.Subscriber(
         args.topic,
         Image,
@@ -165,8 +199,22 @@ def main():
         print("robot POV stream FAILED: %s" % (streamer.error or "stopped"), file=sys.stderr)
         return 2
 
-    while not streamer.stop.is_set() and not rospy.is_shutdown():
-        time.sleep(0.2)
+    if args.repeat_latest:
+        next_emit = time.monotonic()
+        while not streamer.stop.is_set() and not rospy.is_shutdown():
+            now = time.monotonic()
+            if now < next_emit:
+                time.sleep(min(0.02, next_emit - now))
+                continue
+            frame = streamer.get_latest_frame()
+            if frame is not None and not streamer._emit_frame(frame):
+                break
+            next_emit += streamer.period
+            if next_emit <= now:
+                next_emit = now + streamer.period
+    else:
+        while not streamer.stop.is_set() and not rospy.is_shutdown():
+            time.sleep(0.2)
     return 0 if streamer.error in (None, "ffmpeg pipe closed") else 2
 
 

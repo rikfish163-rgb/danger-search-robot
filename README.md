@@ -149,6 +149,8 @@ tools/record_three_floor_replay.sh
 - `*_annotated.mp4`：机器狗视角视频，画面内标出三层开始/完成、电梯上下楼、到达楼层、红球最终确认、返回起点等节点；
 - `*_timeline.json`：每个节点同时给出任务日志时间、视频时间、红球候选/确认坐标和是否为最终确认；
 - `*_timeline.srt`：可独立加载到播放器的字幕轨道；
-- `*_stream.log`：逐帧 epoch 时钟侧车，使事件能匹配到编码帧。旧视频没有这个侧车时，工具会明确把时间标成近似线性对齐。
+- `*_stream.log`：逐帧 epoch 时钟侧车，使事件能匹配到编码帧。录制器以固定 FPS 输出并在 ROS 相机短暂没有新帧时保持上一帧，避免视频因源帧频变化而加速跳帧。旧视频没有这个侧车时，工具会明确把时间标成近似线性对齐。
 
 只有显式设置 `THREE_FLOOR_POV_CAMERA_MODE=standalone` 时，才会使用额外的跟随相机调试模式。若只需要原始视频而不渲染字幕，可设置 `THREE_FLOOR_ANNOTATE_VIDEO=0`。
+
+注意：固定验收回放 `results/full_three_floor_rerun.py` 为了稳定复现检测结果，会通过 `/gazebo/set_model_state` 在观察点之间切换位姿，因此它适合验收和事件时间轴，不代表机器人在观察点之间真实连续行走。要录制连续运动画面，必须保留本录制器的 `--repeat-latest` 固定帧率模式，同时改用实际的 `move_base/TEB + Graph NBV` 导航任务作为运动源；不能用后期插帧把瞬移伪装成真实运动。
