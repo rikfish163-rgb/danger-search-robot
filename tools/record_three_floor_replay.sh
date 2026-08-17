@@ -79,8 +79,8 @@ REPLAY_GAZEBO_GUI=true "$REPLAY" restart
 echo "checking that the recorded display contains a rendered Gazebo frame"
 PROBE_PNG="/dev/shm/three_floor_exploration_${$}.png"
 ffmpeg -hide_banner -loglevel error -y \
-  -f x11grab -video_size 1280x1024 -frames:v 1 \
-  -i "$DISPLAY_VALUE.0+0,0" "$PROBE_PNG"
+  -f x11grab -video_size 1280x1024 \
+  -i "$DISPLAY_VALUE.0+0,0" -frames:v 1 "$PROBE_PNG"
 test -s "$PROBE_PNG" || die "Gazebo display probe is empty"
 
 REPLAY_GAZEBO_GUI=true "$REPLAY" prepare
